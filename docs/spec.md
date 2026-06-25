@@ -93,6 +93,9 @@ root-dir=../shared
 
 - Grid cards use `/thumbnail`.
 - User can open image lightbox with zoom controls.
+- `.arw` files are treated as images.
+- `.arw` thumbnails are generated on demand.
+- Opening an enlarged `.arw` preview converts it to a cached `.jpg` for browser display.
 
 ### Preview videos
 
@@ -143,7 +146,7 @@ root-dir=../shared
 
 ## Operational Notes
 
-- Thumbnail generation uses `sharp` for images.
+- Thumbnail generation uses `sharp` for standard images and `ffmpeg` for `.arw` files.
 - Video conversion and video thumbnail generation require `ffmpeg`.
 - Archive listing/download relies on system unzip tooling.
 - Logging is structured line-based stdout logging.

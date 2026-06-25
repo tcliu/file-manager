@@ -34,8 +34,10 @@ const THUMBNAIL_MAX_WIDTH = 480;
 const THUMBNAIL_MAX_HEIGHT = 360;
 const THUMBNAIL_QUALITY = 82;
 const VIDEO_THUMBNAIL_QUALITY = 3;
-const IMAGE_EXTENSIONS = new Set(['avif', 'bmp', 'gif', 'heic', 'heif', 'jpeg', 'jpg', 'png', 'svg', 'webp']);
-const THUMBNAIL_SUPPORTED_EXTENSIONS = getSharpInputExtensions();
+const RAW_IMAGE_EXTENSIONS = new Set(['arw']);
+const IMAGE_EXTENSIONS = new Set(['arw', 'avif', 'bmp', 'gif', 'heic', 'heif', 'jpeg', 'jpg', 'png', 'svg', 'webp']);
+const SHARP_INPUT_EXTENSIONS = getSharpInputExtensions();
+const THUMBNAIL_SUPPORTED_EXTENSIONS = new Set([...SHARP_INPUT_EXTENSIONS, ...RAW_IMAGE_EXTENSIONS]);
 const THUMBNAIL_UNSUPPORTED_EXTENSIONS = [...IMAGE_EXTENSIONS]
   .filter((extension) => !THUMBNAIL_SUPPORTED_EXTENSIONS.has(extension));
 const VIDEO_EXTENSIONS = new Set(['m4v', 'mov', 'mp4', 'mpeg', 'mpg', 'webm']);
@@ -44,6 +46,7 @@ let appConfig;
 let authConfig;
 let uploadDir;
 const activeSessions = new Map();
+const activeImageConversions = new Map();
 const activeVideoConversions = new Map();
 const videoConversionStatuses = new Map();
 let shuttingDown = false;
@@ -497,7 +500,9 @@ async function handleThumbnailRequest(request, response, url) {
       return true;
     }
 
-    thumbnail = await ensureImageThumbnail(filePath, fileStat);
+    thumbnail = RAW_IMAGE_EXTENSIONS.has(extension)
+      ? await ensureProcessedImage(filePath, fileStat)
+      : await ensureImageThumbnail(filePath, fileStat);
   } else if (VIDEO_EXTENSIONS.has(extension)) {
     thumbnail = await ensureVideoThumbnail(filePath, fileStat);
   } else {
@@ -821,7 +826,13 @@ async function handleDeleteSelectionApiRequest(request, response, url) {
 
     await unlink(entryPath);
 
-    if (VIDEO_EXTENSIONS.has(path.extname(entryPath).slice(1).toLowerCase())) {
+    const entryExtension = path.extname(entryPath).slice(1).toLowerCase();
+
+    if (RAW_IMAGE_EXTENSIONS.has(entryExtension)) {
+      await rm(getProcessedImagePath(entryPath), { force: true }).catch(() => {});
+    }
+
+    if (VIDEO_EXTENSIONS.has(entryExtension)) {
       await rm(getProcessedVideoPath(entryPath), { force: true }).catch(() => {});
     }
   }
@@ -1525,6 +1536,10 @@ async function streamInlineFile(request, response, filePath, fileStat) {
 async function resolveInlineMedia(filePath, fileStat) {
   const extension = path.extname(filePath).slice(1).toLowerCase();
 
+  if (RAW_IMAGE_EXTENSIONS.has(extension)) {
+    return ensureProcessedImage(filePath, fileStat);
+  }
+
   if (!VIDEO_EXTENSIONS.has(extension) || extension === 'webm') {
     return {
       path: filePath,
@@ -1594,6 +1609,13 @@ async function createProcessedVideo(sourcePath, processedPath) {
     await rename(tempPath, processedPath);
   } catch (error) {
     await rm(tempPath, { force: true }).catch(() => {});
+    logEvent('server', 'file_convert_error', {
+      kind: 'video',
+      source_path: sourceRelativePath,
+      output_path: outputRelativePath,
+      elapsed_ms: Date.now() - startedAt,
+      error: error.message,
+    });
     videoConversionStatuses.set(processedPath, {
       state: 'error',
       progress: 0,
@@ -1763,8 +1785,7 @@ function runFfmpegVideoConversion(sourcePath, targetPath, onProgress) {
         return;
       }
 
-      const detail = stderr.trim().split('\n').at(-1) ?? '';
-      reject(new Error(detail || `ffmpeg exited with code ${code}`));
+      reject(new Error(extractFfmpegErrorDetail(stderr, code)));
     });
   });
 }
@@ -1802,17 +1823,100 @@ function getProcessedVideoPath(filePath) {
   return path.join(path.dirname(filePath), PROCESSED_DIR_NAME, `${path.parse(filePath).name}.mp4`);
 }
 
+function getProcessedImagePath(filePath) {
+  const parsed = path.parse(filePath);
+  return path.join(
+    path.dirname(filePath),
+    PROCESSED_DIR_NAME,
+    `${parsed.name}.${parsed.ext.replace(/^\./, '').toLowerCase()}.jpg`,
+  );
+}
+
+async function ensureProcessedImage(sourcePath, sourceStat) {
+  const processedPath = getProcessedImagePath(sourcePath);
+  const processedParentDir = path.dirname(processedPath);
+  const processedStat = await stat(processedPath).catch(() => null);
+
+  if (processedStat?.isFile() && processedStat.mtimeMs >= sourceStat.mtimeMs) {
+    return {
+      path: processedPath,
+      stat: processedStat,
+      generated: false,
+    };
+  }
+
+  const activeConversion = activeImageConversions.get(processedPath);
+
+  if (activeConversion) {
+    return activeConversion;
+  }
+
+  await mkdir(processedParentDir, { recursive: true });
+  const conversion = createProcessedImage(sourcePath, processedPath)
+    .then(async () => ({
+      path: processedPath,
+      stat: await stat(processedPath),
+      generated: true,
+    }))
+    .finally(() => {
+      activeImageConversions.delete(processedPath);
+    });
+
+  activeImageConversions.set(processedPath, conversion);
+  return conversion;
+}
+
+async function createProcessedImage(sourcePath, processedPath) {
+  const tempPath = `${processedPath}.${randomUUID()}.tmp.jpg`;
+  const sourceRelativePath = path.relative(rootDir, sourcePath).split(path.sep).join('/');
+  const outputRelativePath = path.relative(rootDir, processedPath).split(path.sep).join('/');
+  const startedAt = Date.now();
+  const extension = path.extname(sourcePath).slice(1).toLowerCase();
+
+  logEvent('server', 'file_convert_start', {
+    kind: 'image',
+    source_path: sourceRelativePath,
+    output_path: outputRelativePath,
+  });
+
+  try {
+    await convertImageToJpeg(sourcePath, tempPath, extension);
+    await rename(tempPath, processedPath);
+  } catch (error) {
+    await rm(tempPath, { force: true }).catch(() => {});
+    logEvent('server', 'file_convert_error', {
+      kind: 'image',
+      source_path: sourceRelativePath,
+      output_path: outputRelativePath,
+      elapsed_ms: Date.now() - startedAt,
+      error: error.message,
+    });
+    throw error;
+  }
+
+  logEvent('server', 'file_convert_end', {
+    kind: 'image',
+    source_path: sourceRelativePath,
+    output_path: outputRelativePath,
+    elapsed_ms: Date.now() - startedAt,
+  });
+}
+
 async function ensureImageThumbnail(sourcePath, sourceStat) {
   const thumbnailPath = getImageThumbnailPath(sourcePath);
   const thumbnailParentDir = path.dirname(thumbnailPath);
   const thumbnailStat = await stat(thumbnailPath).catch(() => null);
+  const extension = path.extname(sourcePath).slice(1).toLowerCase();
 
   if (thumbnailStat?.isFile() && thumbnailStat.mtimeMs >= sourceStat.mtimeMs) {
     return { path: thumbnailPath, generated: false };
   }
 
   await mkdir(thumbnailParentDir, { recursive: true });
-  await createImageThumbnail(sourcePath, thumbnailPath);
+  const thumbnailInputPath = RAW_IMAGE_EXTENSIONS.has(extension)
+    ? (await ensureProcessedImage(sourcePath, sourceStat)).path
+    : sourcePath;
+  await createImageThumbnail(thumbnailInputPath, thumbnailPath, sourcePath);
   return { path: thumbnailPath, generated: true };
 }
 
@@ -1830,7 +1934,7 @@ async function ensureVideoThumbnail(sourcePath, sourceStat) {
   return { path: thumbnailPath, generated: true };
 }
 
-async function createImageThumbnail(sourcePath, thumbnailPath) {
+async function createImageThumbnail(inputPath, thumbnailPath, sourcePath = inputPath) {
   const sourceRelativePath = path.relative(rootDir, sourcePath).split(path.sep).join('/');
   const outputRelativePath = path.relative(rootDir, thumbnailPath).split(path.sep).join('/');
   const startedAt = Date.now();
@@ -1841,14 +1945,25 @@ async function createImageThumbnail(sourcePath, thumbnailPath) {
     output_path: outputRelativePath,
   });
 
-  await sharp(sourcePath, { pages: 1 })
-    .rotate()
-    .resize(THUMBNAIL_MAX_WIDTH, THUMBNAIL_MAX_HEIGHT, {
-      fit: 'inside',
-      withoutEnlargement: true,
-    })
-    .jpeg({ quality: THUMBNAIL_QUALITY })
-    .toFile(thumbnailPath);
+  try {
+    await sharp(inputPath, { pages: 1 })
+      .rotate()
+      .resize(THUMBNAIL_MAX_WIDTH, THUMBNAIL_MAX_HEIGHT, {
+        fit: 'inside',
+        withoutEnlargement: true,
+      })
+      .jpeg({ quality: THUMBNAIL_QUALITY })
+      .toFile(thumbnailPath);
+  } catch (error) {
+    logEvent('server', 'thumbnail_generate_error', {
+      kind: 'image',
+      source_path: sourceRelativePath,
+      output_path: outputRelativePath,
+      elapsed_ms: Date.now() - startedAt,
+      error: error.message,
+    });
+    throw error;
+  }
 
   logEvent('server', 'thumbnail_generate_end', {
     kind: 'image',
@@ -1875,6 +1990,7 @@ function createVideoThumbnail(sourcePath, thumbnailPath) {
       '-i', sourcePath,
       '-vf', `thumbnail,scale=${THUMBNAIL_MAX_WIDTH}:${THUMBNAIL_MAX_HEIGHT}:force_original_aspect_ratio=decrease`,
       '-frames:v', '1',
+      '-update', '1',
       '-q:v', String(VIDEO_THUMBNAIL_QUALITY),
       thumbnailPath,
     ], {
@@ -1897,8 +2013,15 @@ function createVideoThumbnail(sourcePath, thumbnailPath) {
 
     child.on('exit', (code) => {
       if (code !== 0) {
-        const detail = stderr.trim().split('\n').at(-1) ?? '';
-        reject(new Error(detail || `ffmpeg exited with code ${code}`));
+        const error = new Error(extractFfmpegErrorDetail(stderr, code));
+        logEvent('server', 'thumbnail_generate_error', {
+          kind: 'video',
+          source_path: sourceRelativePath,
+          output_path: outputRelativePath,
+          elapsed_ms: Date.now() - startedAt,
+          error: error.message,
+        });
+        reject(error);
         return;
       }
 
@@ -1914,11 +2037,128 @@ function createVideoThumbnail(sourcePath, thumbnailPath) {
 }
 
 function getImageThumbnailPath(sourcePath) {
+  const parsed = path.parse(sourcePath);
   return path.join(
     path.dirname(sourcePath),
     THUMBNAIL_DIR_NAME,
-    path.parse(sourcePath).name + '.jpg',
+    `${parsed.name}.${parsed.ext.replace(/^\./, '').toLowerCase()}.jpg`,
   );
+}
+
+function runFfmpegImageConversion(sourcePath, targetPath) {
+  return new Promise((resolve, reject) => {
+    const child = spawn('ffmpeg', [
+      '-y',
+      '-i', sourcePath,
+      '-map', '0:v:0',
+      '-frames:v', '1',
+      '-update', '1',
+      '-q:v', '2',
+      targetPath,
+    ], {
+      stdio: ['ignore', 'ignore', 'pipe'],
+    });
+    let stderr = '';
+
+    child.stderr.on('data', (chunk) => {
+      stderr += chunk.toString();
+    });
+
+    child.on('error', (error) => {
+      if (error.code === 'ENOENT') {
+        reject(new Error('ffmpeg is required to convert ARW files for browser preview.'));
+        return;
+      }
+
+      reject(error);
+    });
+
+    child.on('exit', (code) => {
+      if (code === 0) {
+        resolve();
+        return;
+      }
+
+      reject(new Error(extractFfmpegErrorDetail(stderr, code)));
+    });
+  });
+}
+
+async function convertImageToJpeg(sourcePath, targetPath, extension) {
+  try {
+    await runFfmpegImageConversion(sourcePath, targetPath);
+  } catch (error) {
+    if (!RAW_IMAGE_EXTENSIONS.has(extension)) {
+      throw error;
+    }
+
+    await runImageMagickImageConversion(sourcePath, targetPath, error.message);
+  }
+}
+
+function runImageMagickImageConversion(sourcePath, targetPath, ffmpegErrorMessage = '') {
+  return new Promise((resolve, reject) => {
+    const child = spawn('convert', [
+      sourcePath,
+      '-auto-orient',
+      '-quality', '92',
+      targetPath,
+    ], {
+      stdio: ['ignore', 'ignore', 'pipe'],
+    });
+    let stderr = '';
+
+    child.stderr.on('data', (chunk) => {
+      stderr += chunk.toString();
+    });
+
+    child.on('error', (error) => {
+      if (error.code === 'ENOENT') {
+        reject(new Error(`ffmpeg failed: ${ffmpegErrorMessage || 'unknown error'} | ImageMagick convert is not installed.`));
+        return;
+      }
+
+      reject(error);
+    });
+
+    child.on('exit', (code) => {
+      if (code === 0) {
+        resolve();
+        return;
+      }
+
+      const convertDetail = extractCommandErrorDetail(stderr, code, 'convert');
+      reject(new Error(`ffmpeg failed: ${ffmpegErrorMessage || 'unknown error'} | ImageMagick failed: ${convertDetail}`));
+    });
+  });
+}
+
+function extractFfmpegErrorDetail(stderr, code) {
+  const lines = String(stderr || '')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const meaningfulLines = lines.filter((line) => line !== 'Conversion failed!');
+
+  if (!meaningfulLines.length) {
+    return `ffmpeg exited with code ${code}`;
+  }
+
+  return meaningfulLines.slice(-4).join(' | ');
+}
+
+function extractCommandErrorDetail(stderr, code, commandName) {
+  const lines = String(stderr || '')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  if (!lines.length) {
+    return `${commandName} exited with code ${code}`;
+  }
+
+  return lines.slice(-4).join(' | ');
 }
 
 function getVideoThumbnailPath(sourcePath) {

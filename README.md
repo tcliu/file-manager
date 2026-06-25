@@ -2,9 +2,10 @@
 
  A small Node.js file manager for browsing, previewing, uploading, downloading, zipping, and deleting files from a browser.
 
- ## Requirements
+## Requirements
 
- - Node.js
+- Node.js
+- `ffmpeg` for video support and `.arw` thumbnail/preview conversion
 
  ## Install
 
