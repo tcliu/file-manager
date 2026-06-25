@@ -27,7 +27,6 @@ const requestedPort = parsePort(cliOptions.port);
 const DEFAULT_PAGE_SIZE = 20;
 const DEFAULT_UPLOAD_DIR = 'upload';
 const PAGE_SIZE_OPTIONS = [10, 20, 50, 100, 'All'];
-const SESSION_DURATION_MS = 10 * 60 * 1000;
 const PROCESSED_DIR_NAME = '.processed';
 const THUMBNAIL_DIR_NAME = '.thumbnails';
 const THUMBNAIL_MAX_WIDTH = 480;
@@ -212,11 +211,11 @@ async function handleLoginApiRequest(request, response, url) {
   }
 
   const token = createSessionToken(username);
-  sendJson(request, response, 200, { ok: true, token, expiresInMs: SESSION_DURATION_MS });
+  sendJson(request, response, 200, { ok: true, token, expiresInMs: authConfig.sessionExpiryMs });
   logAccess(request, 'login', {
     username,
     auth_enabled: true,
-    expires_in_ms: SESSION_DURATION_MS,
+    expires_in_ms: authConfig.sessionExpiryMs,
   });
   return true;
 }
@@ -1280,7 +1279,7 @@ function createSessionToken(username = '') {
   const token = randomUUID();
   activeSessions.set(token, {
     username,
-    expiresAt: Date.now() + SESSION_DURATION_MS,
+    expiresAt: Date.now() + authConfig.sessionExpiryMs,
   });
   return token;
 }
@@ -1348,6 +1347,7 @@ async function loadAppConfig() {
 
   const username = entries['username'] ?? entries['user-name'] ?? '';
   const password = entries.password ?? '';
+  const sessionExpiryMs = parseSessionExpiryMs(entries['session-expiry-ms']);
 
   if (password && !username) {
     throw new Error('username must be set when password is configured in .env or .env.local');
@@ -1356,11 +1356,22 @@ async function loadAppConfig() {
   return {
     auth: {
       enabled: password !== '',
+      sessionExpiryMs,
       username,
       password,
     },
     uploadDir: normalizeConfiguredDir(entries['upload-dir'], DEFAULT_UPLOAD_DIR),
   };
+}
+
+function parseSessionExpiryMs(value) {
+  const sessionExpiryMs = Number(value);
+
+  if (!Number.isInteger(sessionExpiryMs) || sessionExpiryMs <= 0) {
+    throw new Error('session-expiry-ms must be a positive integer in .env or .env.local');
+  }
+
+  return sessionExpiryMs;
 }
 
 async function loadEnvEntries(baseDir) {
@@ -2518,6 +2529,20 @@ function formatTimestamp(date) {
   return `${year}${month}${day}${hours}${minutes}${seconds}`;
 }
 
+function formatSessionExpiryLabel(sessionExpiryMs) {
+  if (sessionExpiryMs % 60000 === 0) {
+    const minutes = sessionExpiryMs / 60000;
+    return minutes === 1 ? '1 minute' : `${minutes} minutes`;
+  }
+
+  if (sessionExpiryMs % 1000 === 0) {
+    const seconds = sessionExpiryMs / 1000;
+    return seconds === 1 ? '1 second' : `${seconds} seconds`;
+  }
+
+  return `${sessionExpiryMs} ms`;
+}
+
 function logAccess(request, action, details) {
   logEvent(getRequestIp(request), action, details);
 }
@@ -2656,7 +2681,7 @@ function renderPage(config) {
         <div class="mb-6">
           <p class="text-xs font-semibold uppercase tracking-[0.24em] text-cyan-300">Protected Access</p>
           <h1 class="mt-3 text-3xl font-semibold tracking-tight text-slate-100">File Manager Login</h1>
-          <p class="mt-2 text-sm text-slate-400">Sign in to access the file browser. Sessions expire after 10 minutes.</p>
+          <p class="mt-2 text-sm text-slate-400">Sign in to access the file browser. Sessions expire after ${escapeHtml(formatSessionExpiryLabel(config.auth.sessionExpiryMs))}.</p>
         </div>
         <form id="loginForm" @submit.prevent="onLoginSubmit($event)" class="space-y-4">
           <label class="block text-sm text-slate-300">
@@ -3097,7 +3122,7 @@ function renderPage(config) {
   <script>
     const AUTH_CONFIG = ${JSON.stringify({
       enabled: config.auth.enabled,
-      sessionDurationMs: SESSION_DURATION_MS,
+      sessionDurationMs: config.auth.sessionExpiryMs,
       uploadDir: config.uploadDir,
       username: config.auth.username,
     })};

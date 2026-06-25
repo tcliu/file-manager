@@ -37,6 +37,7 @@
  ```ini
  username=
  password=
+ session-expiry-ms=600000
  upload-dir=upload
  root-dir=
  ```
@@ -45,6 +46,7 @@
 
  - `username`: login username
  - `password`: login password; leave empty to disable auth
+ - `session-expiry-ms`: session lifetime in milliseconds
  - `upload-dir`: upload folder name inside the active directory
  - `root-dir`: single path or comma-separated list of root directories
 

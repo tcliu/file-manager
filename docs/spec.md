@@ -31,6 +31,7 @@ Supported config keys:
 
 - `username`
 - `password`
+- `session-expiry-ms`
 - `upload-dir`
 - `root-dir`
 
@@ -60,8 +61,8 @@ root-dir=../shared
 
 - If `password` is empty, auth is disabled.
 - If `password` is set, `username` must also be set.
+- `session-expiry-ms` controls the in-memory session lifetime.
 - Login returns an in-memory session token.
-- Session duration is 10 minutes.
 - Authorized requests use `x-session-token` or `token` query param.
 
 ## Core User Flows
