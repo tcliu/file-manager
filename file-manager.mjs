@@ -653,8 +653,11 @@ async function handleUploadApiRequest(request, response, url) {
   const currentDir = normalizeRelativeDirectory(url.searchParams.get('dir') ?? '');
   const destinationDir = resolveUploadDirectoryPath(currentDir);
   const overwriteExisting = url.searchParams.get('overwrite') === '1';
-  await mkdir(destinationDir, { recursive: true });
-  const destinationStat = await stat(destinationDir).catch(() => null);
+  let destinationStat = await stat(destinationDir).catch(() => null);
+  if (!destinationStat?.isDirectory()) {
+    await mkdir(destinationDir, { recursive: true });
+    destinationStat = await stat(destinationDir).catch(() => null);
+  }
   const contentType = request.headers['content-type'] ?? '';
   const boundary = contentType.match(/boundary=(?:(?:"([^"]+)")|([^;]+))/i)?.[1]
     ?? contentType.match(/boundary=(?:(?:"([^"]+)")|([^;]+))/i)?.[2];
@@ -1218,8 +1221,26 @@ async function readImageMetadata(filePath) {
 }
 
 function extractImageTimestamp(metadata) {
-  if (typeof metadata.exif === 'undefined' || metadata.exif === null) {
-    return null;
+  const exifTimestamp = extractExifTagValue(metadata.exif, [
+    'DateTimeOriginal',
+    'CreateDate',
+    'ModifyDate',
+    'DateTime',
+  ]);
+
+  if (exifTimestamp) {
+    const subsecond = extractExifTagValue(metadata.exif, [
+      'SubSecTimeOriginal',
+      'SubSecTimeDigitized',
+      'SubSecTime',
+    ]);
+    const offset = extractExifTagValue(metadata.exif, [
+      'OffsetTimeOriginal',
+      'OffsetTimeDigitized',
+      'OffsetTime',
+      'TimeZoneOffset',
+    ]);
+    return joinExifTimestampParts(exifTimestamp, subsecond, offset);
   }
 
   return metadata.dateTimeOriginal
@@ -1229,23 +1250,171 @@ function extractImageTimestamp(metadata) {
     ?? null;
 }
 
+function extractExifTagValue(exifBuffer, tagNames) {
+  if (!Buffer.isBuffer(exifBuffer) || tagNames.length === 0) {
+    return null;
+  }
+
+  const tiffOffset = exifBuffer.indexOf('Exif\0\0', 0, 'ascii');
+  const start = tiffOffset === -1 ? 0 : tiffOffset + 6;
+
+  if (exifBuffer.length < start + 8) {
+    return null;
+  }
+
+  const byteOrder = exifBuffer.toString('ascii', start, start + 2);
+
+  if (byteOrder !== 'II' && byteOrder !== 'MM') {
+    return null;
+  }
+
+  const littleEndian = byteOrder === 'II';
+  const readUInt16 = (offset) => littleEndian ? exifBuffer.readUInt16LE(offset) : exifBuffer.readUInt16BE(offset);
+  const readUInt32 = (offset) => littleEndian ? exifBuffer.readUInt32LE(offset) : exifBuffer.readUInt32BE(offset);
+  const asciiTags = new Set(tagNames.map((name) => EXIF_TAG_NUMBERS[name]).filter(Number.isInteger));
+
+  if (!asciiTags.size) {
+    return null;
+  }
+
+  const visitedIfds = new Set();
+  const queue = [start + readUInt32(start + 4)];
+
+  while (queue.length > 0) {
+    const ifdOffset = queue.shift();
+
+    if (!Number.isInteger(ifdOffset) || ifdOffset < start || ifdOffset + 2 > exifBuffer.length || visitedIfds.has(ifdOffset)) {
+      continue;
+    }
+
+    visitedIfds.add(ifdOffset);
+    const entryCount = readUInt16(ifdOffset);
+
+    for (let index = 0; index < entryCount; index += 1) {
+      const entryOffset = ifdOffset + 2 + (index * 12);
+
+      if (entryOffset + 12 > exifBuffer.length) {
+        break;
+      }
+
+      const tag = readUInt16(entryOffset);
+      const type = readUInt16(entryOffset + 2);
+      const count = readUInt32(entryOffset + 4);
+      const valueOffset = entryOffset + 8;
+
+      if (tag === EXIF_TAG_NUMBERS.ExifIFDPointer || tag === EXIF_TAG_NUMBERS.GPSInfoIFDPointer) {
+        const nestedOffset = start + readUInt32(valueOffset);
+
+        if (nestedOffset >= start && nestedOffset + 2 <= exifBuffer.length) {
+          queue.push(nestedOffset);
+        }
+      }
+
+      if (!asciiTags.has(tag) || type !== 2 || count === 0) {
+        continue;
+      }
+
+      const byteLength = count;
+      const dataOffset = byteLength <= 4 ? valueOffset : start + readUInt32(valueOffset);
+
+      if (dataOffset < start || dataOffset + byteLength > exifBuffer.length) {
+        continue;
+      }
+
+      const rawValue = exifBuffer.toString('utf8', dataOffset, dataOffset + byteLength).replace(/\0+$/u, '').trim();
+
+      if (rawValue) {
+        return rawValue;
+      }
+    }
+
+    const nextIfdPointerOffset = ifdOffset + 2 + (entryCount * 12);
+
+    if (nextIfdPointerOffset + 4 <= exifBuffer.length) {
+      const nextIfdOffset = start + readUInt32(nextIfdPointerOffset);
+
+      if (nextIfdOffset >= start && nextIfdOffset + 2 <= exifBuffer.length) {
+        queue.push(nextIfdOffset);
+      }
+    }
+  }
+
+  return null;
+}
+
+function joinExifTimestampParts(timestamp, subsecond, offset) {
+  const trimmedTimestamp = typeof timestamp === 'string' ? timestamp.trim() : '';
+
+  if (!trimmedTimestamp) {
+    return null;
+  }
+
+  const trimmedSubsecond = typeof subsecond === 'string' ? subsecond.trim().replace(/\D+/gu, '') : '';
+  const trimmedOffset = normalizeExifOffset(offset);
+  return `${trimmedTimestamp}${trimmedSubsecond ? `.${trimmedSubsecond}` : ''}${trimmedOffset}`;
+}
+
+function normalizeExifOffset(value) {
+  if (typeof value !== 'string') {
+    return '';
+  }
+
+  const trimmed = value.trim();
+
+  if (!trimmed) {
+    return '';
+  }
+
+  if (/^[+-]\d{2}:\d{2}$/u.test(trimmed) || trimmed === 'Z') {
+    return trimmed;
+  }
+
+  if (/^[+-]\d{4}$/u.test(trimmed)) {
+    return `${trimmed.slice(0, 3)}:${trimmed.slice(3)}`;
+  }
+
+  if (/^[+-]?\d{1,2}$/u.test(trimmed)) {
+    const hours = Math.abs(Number(trimmed));
+    const sign = trimmed.startsWith('-') ? '-' : '+';
+    return `${sign}${String(hours).padStart(2, '0')}:00`;
+  }
+
+  return '';
+}
+
 function parseExifTimestamp(value) {
   if (typeof value !== 'string') {
     return null;
   }
 
   const trimmed = value.trim();
-  const exifMatch = /^(\d{4}):(\d{2}):(\d{2})[ T](\d{2}):(\d{2}):(\d{2})$/.exec(trimmed);
+  const exifMatch = /^(\d{4}):(\d{2}):(\d{2})[ T](\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?(Z|[+-]\d{2}:\d{2})?$/u.exec(trimmed);
 
   if (exifMatch) {
-    const [, year, month, day, hours, minutes, seconds] = exifMatch;
-    const parsed = new Date(`${year}-${month}-${day}T${hours}:${minutes}:${seconds}`);
+    const [, year, month, day, hours, minutes, seconds, fractional = '', offset = ''] = exifMatch;
+    const parsed = new Date(`${year}-${month}-${day}T${hours}:${minutes}:${seconds}${fractional ? `.${fractional}` : ''}${offset}`);
     return Number.isNaN(parsed.getTime()) ? null : parsed;
   }
 
   const parsed = new Date(trimmed);
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
+
+const EXIF_TAG_NUMBERS = {
+  DateTime: 0x0132,
+  ModifyDate: 0x0132,
+  GPSInfoIFDPointer: 0x8825,
+  ExifIFDPointer: 0x8769,
+  DateTimeOriginal: 0x9003,
+  CreateDate: 0x9004,
+  OffsetTime: 0x9010,
+  OffsetTimeOriginal: 0x9011,
+  OffsetTimeDigitized: 0x9012,
+  SubSecTime: 0x9290,
+  SubSecTimeOriginal: 0x9291,
+  SubSecTimeDigitized: 0x9292,
+  TimeZoneOffset: 0x882a,
+};
 
 async function listExtensions(dir, relativeDir) {
   if (rootDirs.length > 1 && (!relativeDir || relativeDir === '.')) {
@@ -1350,7 +1519,7 @@ async function loadAppConfig() {
   const sessionExpiryMs = parseSessionExpiryMs(entries['session-expiry-ms']);
 
   if (password && !username) {
-    throw new Error('username must be set when password is configured in .env or .env.local');
+    throw new Error('Username must be set when password is configured in .env or .env.local');
   }
 
   return {
@@ -2549,8 +2718,8 @@ function logAccess(request, action, details) {
 
 function logEvent(ip, action, details = {}) {
   const timestamp = new Date().toISOString();
-  const level = 'INFO';
-  const serializedDetails = Object.entries(details)
+  const { level = 'INFO', ...rest } = details;
+  const serializedDetails = Object.entries(rest)
     .map(([key, value]) => `${key}=${JSON.stringify(value)}`)
     .join(' ');
   console.log(`${timestamp} ${level} ip=${ip || 'unknown'} action=${action}${serializedDetails ? ` ${serializedDetails}` : ''}`);
@@ -3260,7 +3429,7 @@ function renderPage(config) {
           return formatBytes(bytes);
         },
         formatDateValue(value) {
-          return new Date(value).toLocaleString();
+          return formatDateTime(value);
         },
         formatDimensionsValue(file) {
           return formatImageDimensions(file);
@@ -3477,11 +3646,9 @@ function renderPage(config) {
           window.__fileManagerApp = this;
           initializeUiState();
           const initialLocationState = readInitialLocationState();
-          console.log('[DEBUG init] initialLocationState:', initialLocationState, 'url:', window.location.href);
           state.currentDir = initialLocationState.directory;
           state.requestedExtensions = new Set(initialLocationState.selectedExtensions);
           state.selectedExtensions = new Set(initialLocationState.selectedExtensions);
-          console.log('[DEBUG init] requestedExtensions after set:', [...state.requestedExtensions]);
           state.initialLightboxPath = initialLocationState.filePath;
           state.initialLightboxZoomValue = initialLocationState.zoomValue;
           state.pendingInitialLightboxRestore = Boolean(initialLocationState.filePath);
@@ -3618,7 +3785,6 @@ function renderPage(config) {
     }
 
     function syncLocationState() {
-      console.log('[DEBUG syncLocationState] requestedExtensions:', [...state.requestedExtensions], 'currentDir:', state.currentDir, 'url:', window.location.href);
       const url = new URL(window.location.href);
       const relativePath = state.currentDir;
 
@@ -3647,7 +3813,6 @@ function renderPage(config) {
         url.searchParams.delete('z');
       }
 
-      console.log('[DEBUG syncLocationState] result URL:', url.pathname + (url.search ? url.search : ''));
       window.history.replaceState({}, '', url.pathname + (url.search ? url.search : ''));
     }
 
@@ -4247,7 +4412,7 @@ function renderPage(config) {
 
       const remainingMs = Math.max(0, session.expiresAt - Date.now());
       window.__fileManagerSessionTimer = window.setTimeout(() => {
-        forceLogout('Session expired. Please log in again.');
+        forceLogout('Session expired: please log in again');
       }, remainingMs);
     }
 
@@ -4268,7 +4433,7 @@ function renderPage(config) {
       getApp().loginPending = false;
 
       if (!response.ok) {
-        getApp().loginStatusText = data.error ?? 'Login failed.';
+        getApp().loginStatusText = data.error ?? 'Login failed';
         return;
       }
 
@@ -4297,8 +4462,7 @@ function renderPage(config) {
         });
 
       if (response.status === 401) {
-        console.log('[DEBUG loadFiles] 401 response');
-        forceLogout('Session expired. Please log in again.');
+        forceLogout('Session expired: please log in again');
         return;
       }
       } catch {
@@ -4325,11 +4489,8 @@ function renderPage(config) {
       getApp().viewMode = state.viewMode;
       getApp().selectedExtensionsList = [...state.requestedExtensions].sort();
       updateSelectedCount();
-      console.log('[DEBUG initializeApp] before loadExtensions, requestedExtensions:', [...state.requestedExtensions]);
       await loadExtensions();
-      console.log('[DEBUG initializeApp] after loadExtensions, before loadFiles, requestedExtensions:', [...state.requestedExtensions]);
       await loadFiles();
-      console.log('[DEBUG initializeApp] after loadFiles, requestedExtensions:', [...state.requestedExtensions]);
     }
 
     async function loadExtensions() {
@@ -4338,7 +4499,7 @@ function renderPage(config) {
         headers: getAuthHeaders(),
       });
       if (response.status === 401) {
-        forceLogout('Session expired. Please log in again.');
+        forceLogout('Session expired: please log in again');
         return;
       }
       const data = await response.json();
@@ -4347,10 +4508,8 @@ function renderPage(config) {
     }
 
     async function loadFiles() {
-      console.log('[DEBUG loadFiles] requestedExtensions:', [...state.requestedExtensions], 'url:', window.location.href);
       if (!readSession()) {
-        console.log('[DEBUG loadFiles] no session, aborting');
-        forceLogout('Session expired. Please log in again.');
+        forceLogout('Session expired: please log in again');
         return;
       }
 
@@ -4366,14 +4525,12 @@ function renderPage(config) {
         query.append('ext', extension);
       }
 
-      console.log('[DEBUG loadFiles] API query:', query.toString());
       const response = await fetch('/api/files?' + query.toString(), {
         headers: getAuthHeaders(),
       });
 
       if (response.status === 401) {
-        console.log('[DEBUG loadFiles] 401 from /api/files');
-        forceLogout('Session expired. Please log in again.');
+        forceLogout('Session expired: please log in again');
         return;
       }
 
@@ -4426,7 +4583,7 @@ function renderPage(config) {
 
     async function uploadFiles(files) {
       if (!readSession()) {
-        forceLogout('Session expired. Please log in again.');
+        forceLogout('Session expired: please log in again');
         return;
       }
 
@@ -4454,7 +4611,7 @@ function renderPage(config) {
       }
 
       if (!uploadQueue.length) {
-        getApp().statusText = 'Upload cancelled.';
+        getApp().statusText = 'Upload cancelled';
         getApp().fileInputVersion += 1;
         return;
       }
@@ -4481,12 +4638,12 @@ function renderPage(config) {
 
           if (response.status === 401) {
             hideUploadProgress();
-            forceLogout('Session expired. Please log in again.');
+            forceLogout('Session expired: please log in again');
             return;
           }
 
           if (!response.ok) {
-            getApp().statusText = data.error ?? 'Upload failed.';
+            getApp().statusText = data.error ?? 'Upload failed';
             return;
           }
 
@@ -4540,7 +4697,7 @@ function renderPage(config) {
       const trimmedName = decision.fileName.trim();
 
       if (!trimmedName) {
-        throw new Error('Upload cancelled: filename is required.');
+        throw new Error('Upload cancelled: filename is required');
       }
 
       return prepareUploadFile(new File([file], trimmedName, {
@@ -4559,8 +4716,8 @@ function renderPage(config) {
       });
 
       if (response.status === 401) {
-        forceLogout('Session expired. Please log in again.');
-        throw new Error('Session expired. Please log in again.');
+        forceLogout('Session expired: please log in again');
+        throw new Error('Session expired: please log in again');
       }
 
       return response.json();
@@ -4622,12 +4779,12 @@ function renderPage(config) {
 
     async function createSelectionZip() {
       if (!readSession()) {
-        forceLogout('Session expired. Please log in again.');
+        forceLogout('Session expired: please log in again');
         return;
       }
 
       if (!state.selectedFiles.size) {
-        getApp().statusText = 'Select at least one file first.';
+        getApp().statusText = 'Select at least one file first';
         return;
       }
 
@@ -4649,7 +4806,7 @@ function renderPage(config) {
 
       if (!response.ok) {
         const data = await response.json().catch(() => ({}));
-        getApp().statusText = data.error ?? 'Failed to create zip file.';
+        getApp().statusText = data.error ?? 'Failed to create zip file';
         return;
       }
 
@@ -4670,12 +4827,12 @@ function renderPage(config) {
 
     async function deleteSelectedFiles() {
       if (!readSession()) {
-        forceLogout('Session expired. Please log in again.');
+        forceLogout('Session expired: please log in again');
         return;
       }
 
       if (!state.selectedFiles.size) {
-        getApp().statusText = 'Select at least one file first.';
+        getApp().statusText = 'Select at least one file first';
         return;
       }
 
@@ -4706,14 +4863,14 @@ function renderPage(config) {
 
       if (!response.ok) {
         getApp().deletePending = false;
-        getApp().statusText = data.error ?? 'Failed to delete selected files.';
+        getApp().statusText = data.error ?? 'Failed to delete selected files';
         return;
       }
 
       state.selectedFiles.clear();
       updateSelectedCount();
       getApp().deletePending = false;
-      getApp().statusText = 'Deleted ' + data.deleted.length + ' item(s).';
+      getApp().statusText = 'Deleted ' + data.deleted.length + ' item(s)';
       await loadExtensions();
       await loadFiles();
     }
@@ -4729,6 +4886,23 @@ function renderPage(config) {
       }
 
       return (value >= 10 || index === 0 ? value.toFixed(0) : value.toFixed(1)) + ' ' + units[index];
+    }
+
+    function formatDateTime(value) {
+      const date = new Date(value);
+
+      if (Number.isNaN(date.getTime())) {
+        return '';
+      }
+
+      return date.toLocaleString([], {
+        year: 'numeric',
+        month: 'numeric',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+        second: '2-digit',
+      });
     }
 
     function formatImageDimensions(file) {
@@ -5049,7 +5223,7 @@ function renderPage(config) {
         ...(isImage && formatImageDimensions(currentFile)
           ? [{ key: 'dimensions', text: formatImageDimensions(currentFile), badge: false }]
           : []),
-        { key: 'modified', text: new Date(currentFile.modifiedAt).toLocaleString(), badge: false },
+        { key: 'modified', text: formatDateTime(currentFile.modifiedAt), badge: false },
         { key: 'page', text: 'Page ' + state.page + ' of ' + state.totalPages, badge: false },
       ];
       getApp().lightboxPrevDisabled = state.page <= 1 && state.lightboxIndex <= 0;
@@ -5140,7 +5314,7 @@ function renderPage(config) {
       getApp().lightboxMetaItems = [
         { key: 'extension', text: '.' + (file.extension || 'none'), badge: true },
         { key: 'size', text: formatBytes(file.size), badge: false },
-        { key: 'modified', text: new Date(file.modifiedAt).toLocaleString(), badge: false },
+        { key: 'modified', text: formatDateTime(file.modifiedAt), badge: false },
       ];
       getApp().lightboxPrevDisabled = true;
       getApp().lightboxNextDisabled = true;
@@ -5185,14 +5359,14 @@ function renderPage(config) {
       });
 
       if (response.status === 401) {
-        forceLogout('Session expired. Please log in again.');
-        throw new Error('Session expired. Please log in again.');
+        forceLogout('Session expired: please log in again');
+        throw new Error('Session expired: please log in again');
       }
 
       const data = await response.json().catch(() => ({}));
 
       if (!response.ok) {
-        throw new Error(data.error ?? 'Failed to read archive contents.');
+        throw new Error(data.error ?? 'Failed to read archive contents');
       }
 
       return data;
@@ -5725,14 +5899,14 @@ function renderPage(config) {
       });
 
       if (response.status === 401) {
-        forceLogout('Session expired. Please log in again.');
-        throw new Error('Session expired. Please log in again.');
+        forceLogout('Session expired: please log in again');
+        throw new Error('Session expired: please log in again');
       }
 
       const data = await response.json().catch(() => ({}));
 
       if (!response.ok) {
-        throw new Error(data.error ?? 'Failed to prepare video.');
+        throw new Error(data.error ?? 'Failed to prepare video');
       }
 
       return data;
@@ -5802,7 +5976,7 @@ function renderPage(config) {
 
     function navigateToDirectory(relativePath) {
       if (!readSession()) {
-        forceLogout('Session expired. Please log in again.');
+        forceLogout('Session expired: please log in again');
         return;
       }
 
@@ -5837,6 +6011,6 @@ function escapeHtml(value) {
 }
 
 main().catch((error) => {
-  console.error(error.message);
+  logEvent('server', 'startup_error', { level: 'ERROR', error: error.message });
   process.exitCode = 1;
 });
