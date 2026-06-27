@@ -70,6 +70,30 @@ function loadAppConfigSync(): AppConfig {
   };
 }
 
+function normalizeConfiguredDir(value: string | undefined, fallback: string, rootDirs: string[], rootDir: string): string {
+  const rawValue = typeof value === 'string' && value.trim() ? value.trim() : fallback;
+
+  if (rootDirs.length > 1) {
+    for (const dir of rootDirs) {
+      const resolvedPath = path.resolve(dir, rawValue);
+      const relativePath = path.relative(dir, resolvedPath);
+      if (!relativePath.startsWith('..') && !path.isAbsolute(relativePath)) {
+        return rawValue;
+      }
+    }
+    throw new Error(`Configured directory must stay within a root directory: ${rawValue}`);
+  }
+
+  const resolvedPath = path.resolve(rootDir, rawValue);
+  const relativePath = path.relative(rootDir, resolvedPath);
+
+  if (relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
+    throw new Error(`Configured directory must stay within root directory: ${rawValue}`);
+  }
+
+  return relativePath.split(path.sep).join('/');
+}
+
 function getRootDir(): string {
   const configuredDir = process.env['FILE_MANAGER_ROOT_DIR'] || process.cwd();
   return path.resolve(configuredDir);
@@ -132,26 +156,3 @@ function parseSessionExpiryMs(value: string | undefined): number {
   return sessionExpiryMs;
 }
 
-function normalizeConfiguredDir(value: string | undefined, fallback: string, rootDirs: string[], rootDir: string): string {
-  const rawValue = typeof value === 'string' && value.trim() ? value.trim() : fallback;
-
-  if (rootDirs.length > 1) {
-    for (const dir of rootDirs) {
-      const resolvedPath = path.resolve(dir, rawValue);
-      const relativePath = path.relative(dir, resolvedPath);
-      if (!relativePath.startsWith('..') && !path.isAbsolute(relativePath)) {
-        return rawValue;
-      }
-    }
-    throw new Error(`Configured directory must stay within a root directory: ${rawValue}`);
-  }
-
-  const resolvedPath = path.resolve(rootDir, rawValue);
-  const relativePath = path.relative(rootDir, resolvedPath);
-
-  if (relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
-    throw new Error(`Configured directory must stay within root directory: ${rawValue}`);
-  }
-
-  return relativePath.split(path.sep).join('/');
-}

@@ -58,11 +58,6 @@ export function resolveListedDirectoryPath(relativePath: string): string {
   return resolveListedFilePath(relativePath || '.');
 }
 
-export function resolveUploadDirectoryPath(currentDir: string): string {
-  const config = getAppConfig();
-  return resolveListedDirectoryPath(path.posix.join(currentDir, config.uploadDir));
-}
-
 export function resolveCurrentDirectoryEntryPath(currentDir: string, relativePath: string): string {
   const entryPath = resolveListedFilePath(relativePath);
   const currentDirectoryPath = resolveListedDirectoryPath(currentDir);

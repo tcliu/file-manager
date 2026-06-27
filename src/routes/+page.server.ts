@@ -1,7 +1,6 @@
 import type { PageServerLoad } from './$types';
 import { getAppConfig, THUMBNAIL_UNSUPPORTED_EXTENSIONS } from '$lib/server/config';
 import { IMAGE_EXTENSIONS, VIDEO_EXTENSIONS } from '$lib/server/constants';
-import { formatSessionExpiryLabel } from '$lib/server/file-utils';
 
 export const load: PageServerLoad = async () => {
   const appConfig = getAppConfig();
@@ -10,7 +9,6 @@ export const load: PageServerLoad = async () => {
     auth: {
       enabled: appConfig.auth.enabled,
       sessionExpiryMs: appConfig.auth.sessionExpiryMs,
-      sessionExpiryLabel: formatSessionExpiryLabel(appConfig.auth.sessionExpiryMs),
       username: appConfig.auth.username,
     },
     uploadDir: appConfig.uploadDir,

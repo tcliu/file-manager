@@ -2,15 +2,13 @@ import { json } from '@sveltejs/kit';
 import { mkdir, stat } from 'node:fs/promises';
 import path from 'node:path';
 import type { RequestHandler } from './$types';
-import { normalizeRelativeDirectory, resolveUploadDirectoryPath } from '$lib/server/file-utils';
-import { getAppConfig } from '$lib/server/config';
+import { normalizeRelativeDirectory, resolveListedDirectoryPath } from '$lib/server/file-utils';
 import { saveMultipartFiles } from '$lib/server/upload';
 import { logAccess } from '$lib/server/logging';
 
 export const POST: RequestHandler = async ({ request, url }) => {
-  const appConfig = getAppConfig();
   const currentDir = normalizeRelativeDirectory(url.searchParams.get('dir') ?? '');
-  const destinationDir = resolveUploadDirectoryPath(currentDir);
+  const destinationDir = resolveListedDirectoryPath(currentDir);
   const overwriteExisting = url.searchParams.get('overwrite') === '1';
 
   let destinationStat = await stat(destinationDir).catch(() => null);
@@ -49,13 +47,11 @@ export const POST: RequestHandler = async ({ request, url }) => {
     throw error;
   }
 
-  const uploadDirectory = normalizeRelativeDirectory(path.posix.join(currentDir, appConfig.uploadDir)) || appConfig.uploadDir;
-
   for (const file of uploadLogEntries) {
     logAccess(request as any, 'upload', {
       directory: currentDir || '.',
-      path: normalizeRelativeDirectory(path.posix.join(uploadDirectory, file.fileName)),
-      upload_directory: uploadDirectory, size: file.size, overwrite_existing: overwriteExisting,
+      path: normalizeRelativeDirectory(path.posix.join(currentDir, file.fileName)),
+      size: file.size, overwrite_existing: overwriteExisting,
     });
   }
 

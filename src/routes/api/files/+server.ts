@@ -22,10 +22,20 @@ export const GET: RequestHandler = async ({ url, request }) => {
   const pageSize = parsePageSize(url.searchParams.get('pageSize'));
   const view = url.searchParams.get('view') === 'grid' ? 'grid' : 'list';
   const currentDir = normalizeRelativeDirectory(url.searchParams.get('dir') ?? '');
-  const selectedExtensions = url.searchParams.getAll('ext').map((ext) => ext.toLowerCase());
+  let selectedExtensions = url.searchParams.getAll('ext').map((ext) => ext.toLowerCase());
 
-  const listing = await listDirectoryContents(currentDir, selectedExtensions);
+  let listing = await listDirectoryContents(currentDir, selectedExtensions);
+
+  if (selectedExtensions.length > 0 && listing.files.length === 0) {
+    const unfilteredListing = await listDirectoryContents(currentDir, []);
+    if (unfilteredListing.files.length > 0) {
+      selectedExtensions = [];
+      listing = unfilteredListing;
+    }
+  }
+
   const total = listing.files.length;
+  const totalSize = listing.files.reduce((sum, f) => sum + f.size, 0);
   const pagedFiles = pageSize === 'All'
     ? listing.files
     : listing.files.slice((page - 1) * (pageSize as number), page * (pageSize as number));
@@ -50,6 +60,7 @@ export const GET: RequestHandler = async ({ url, request }) => {
     page,
     pageSize,
     total,
+    totalSize,
     totalPages,
     pageSizeOptions: [...PAGE_SIZE_OPTIONS],
     selectedExtensions,

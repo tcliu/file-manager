@@ -5,7 +5,7 @@
   import UploadConflictDialog from './UploadConflictDialog.svelte';
 
   interface Props {
-    auth: { enabled: boolean; sessionExpiryMs: number; sessionExpiryLabel: string; username: string };
+    auth: { enabled: boolean; sessionExpiryMs: number; username: string };
     uploadDir: string;
     imageExtensions: string[];
     videoExtensions: string[];
@@ -22,7 +22,6 @@
   const authEnabled = $derived(auth.enabled);
   const authUsername = $derived(auth.username);
   const sessionExpiryMs = $derived(auth.sessionExpiryMs);
-  const sessionExpiryLabel = $derived(auth.sessionExpiryLabel);
 
   // svelte-ignore state_referenced_locally
   let showLoginShell = $state(authEnabled);
@@ -38,6 +37,7 @@
   // svelte-ignore state_referenced_locally
   let sessionInfoText = $state(authEnabled ? '' : 'Authentication disabled');
   let summaryText = $state('');
+  let totalSizeText = $state('');
   let selectedCountText = $state('0 selected');
   let statusText = $state('');
   let pageInfoText = $state('');
@@ -142,6 +142,95 @@
     lightboxPanMoved: false,
   });
 
+  const inUploadDir = $derived(!uploadDir || ui.currentDir === uploadDir || ui.currentDir.startsWith(uploadDir + '/'));
+
+  function normalizeClientRelativeDirectory(relativeDir: string): string {
+    const parts = String(relativeDir || '').split('/');
+    const normalizedParts: string[] = [];
+    for (const part of parts) {
+      if (!part || part === '.') continue;
+      if (part === '..') throw new Error('Invalid directory path');
+      normalizedParts.push(part);
+    }
+    return normalizedParts.join('/');
+  }
+
+  function normalizeLightboxZoomValue(value: string | null): string | null {
+    if (!value) return null;
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    if (trimmed === LIGHTBOX_FIT_ZOOM_VALUE) return LIGHTBOX_FIT_ZOOM_VALUE;
+    const zoomPercent = Number(trimmed);
+    return LIGHTBOX_ZOOM_LEVELS.includes(zoomPercent) ? String(zoomPercent) : null;
+  }
+
+  function normalizeExtensionValue(value: string): string {
+    const v = String(value ?? '').trim().toLowerCase().replace(/^\.+/, '');
+    return v && !v.includes('/') ? v : '';
+  }
+
+  function parseSelectedExtensionsParam(values: string[]): Set<string> {
+    const extensions = new Set<string>();
+    for (const rawValue of values) {
+      const normalizedValue = String(rawValue ?? '').trim();
+      if (!normalizedValue) continue;
+      for (const item of normalizedValue.split(',')) {
+        const ext = normalizeExtensionValue(item);
+        if (ext) extensions.add(ext);
+      }
+    }
+    return extensions;
+  }
+
+  function readInitialLocationState() {
+    if (typeof window === 'undefined') {
+      return { directory: '', filePath: '', zoomValue: null as string | null, selectedExtensions: new Set<string>() };
+    }
+    const url = new URL(window.location.href);
+    const relativePath = url.searchParams.get('p') ?? '';
+    const filePath = url.searchParams.get('f') ?? '';
+    const zoomValue = normalizeLightboxZoomValue(url.searchParams.get('z'));
+    const selectedExtensions = parseSelectedExtensionsParam(url.searchParams.getAll('ext'));
+    let directory = '';
+    let normalizedFilePath = '';
+    try { directory = normalizeClientRelativeDirectory(relativePath); } catch { directory = ''; }
+    try { normalizedFilePath = normalizeClientRelativeDirectory(filePath); } catch { normalizedFilePath = ''; }
+    if (normalizedFilePath) {
+      const parts = normalizedFilePath.split('/');
+      parts.pop();
+      directory = parts.join('/');
+    }
+    return { directory, filePath: normalizedFilePath, zoomValue, selectedExtensions };
+  }
+
+  let pendingInitialLightboxPath = '';
+
+  function syncLocationState() {
+    if (typeof window === 'undefined') return;
+    const url = new URL(window.location.href);
+    if (ui.currentDir) {
+      url.searchParams.set('p', ui.currentDir);
+    } else {
+      url.searchParams.delete('p');
+    }
+    url.searchParams.delete('ext');
+    for (const ext of [...ui.requestedExtensions].sort()) {
+      url.searchParams.append('ext', ext);
+    }
+    if (lightboxOpen && ui.lightboxPath) {
+      url.searchParams.set('f', ui.lightboxPath);
+      if (lightboxMode === 'image') {
+        url.searchParams.set('z', lightboxZoomValue);
+      } else {
+        url.searchParams.delete('z');
+      }
+    } else {
+      url.searchParams.delete('f');
+      url.searchParams.delete('z');
+    }
+    window.history.replaceState({}, '', url.pathname + (url.search ? url.search : ''));
+  }
+
   function isImageFile(extension: string): boolean {
     return imageExtensions.includes(String(extension || '').toLowerCase());
   }
@@ -159,7 +248,7 @@
     let value = bytes;
     let index = 0;
     while (value >= 1000 && index < units.length - 1) { value /= 1000; index += 1; }
-    return (value >= 10 || index === 0 ? value.toFixed(0) : value.toFixed(1)) + ' ' + units[index];
+    return value.toFixed(2) + ' ' + units[index];
   }
 
   function formatDateTime(value: string): string {
@@ -210,8 +299,7 @@
     if (!authEnabled) { sessionInfoText = 'Authentication disabled'; return; }
     const session = readSession();
     if (!session) { sessionInfoText = 'Session expired'; return; }
-    const remainingMinutes = Math.max(1, Math.ceil((session.expiresAt - Date.now()) / 60000));
-    sessionInfoText = session.username + ' \u2022 expires in ' + remainingMinutes + ' min';
+    sessionInfoText = session.username;
   }
 
   function forceLogout(message = 'Session ended. Please log in again.') {
@@ -265,11 +353,23 @@
     forceLogout();
   }
 
-  async function initializeApp() {
+  async function initializeApp(initialZoomValue?: string | null) {
     selectedExtensionsList = [...ui.requestedExtensions].sort();
     updateSelectedCount();
     await loadExtensions();
     await loadFiles();
+    syncLocationState();
+    if (pendingInitialLightboxPath) {
+      const filePath = pendingInitialLightboxPath;
+      pendingInitialLightboxPath = '';
+      const mediaFile = ui.visibleMediaFiles.find((f: any) => f.path === filePath);
+      if (mediaFile) {
+        openLightbox(filePath);
+        if (initialZoomValue && lightboxMode === 'image') {
+          setLightboxZoom(initialZoomValue);
+        }
+      }
+    }
   }
 
   async function loadExtensions() {
@@ -293,11 +393,16 @@
     if (response.status === 401) { forceLogout('Session expired: please log in again'); return; }
     const data = await response.json();
     if (requestId !== loadFilesRequestId) return;
+    if (data.selectedExtensions.length === 0 && ui.requestedExtensions.size > 0) {
+      ui.requestedExtensions.clear();
+      ui.selectedExtensions.clear();
+      selectedExtensionsList = [];
+    }
     pageSizeOptions = data.pageSizeOptions;
     ui.page = data.page;
     ui.totalPages = data.totalPages;
     ui.currentDir = data.directory;
-    ui.visibleMediaFiles = data.files.filter((f: any) => isImageFile(f.extension));
+    ui.visibleMediaFiles = data.files.filter((f: any) => isImageFile(f.extension) || isVideoFile(f.extension));
     directories = data.directories;
     files = data.files;
     pageInfoText = String(data.totalPages);
@@ -309,6 +414,7 @@
     canGoNext = data.page < data.totalPages;
     syncBreadcrumbState();
     summaryText = data.directories.length + ' folders, ' + data.total + ' files';
+    totalSizeText = data.total > 0 ? formatBytes(data.totalSize) : '';
     updateSelectedCount();
     statusText = (data.directories.length || data.files.length) ? '' : 'No items found.';
   }
@@ -337,7 +443,7 @@
     updateSelectedCount();
   }
 
-  function toggleExtensionSelection(extension: string) {
+  async function toggleExtensionSelection(extension: string) {
     if (ui.requestedExtensions.has(extension)) {
       ui.requestedExtensions.delete(extension);
       ui.selectedExtensions.delete(extension);
@@ -347,15 +453,23 @@
     }
     selectedExtensionsList = [...ui.requestedExtensions].sort();
     ui.page = 1;
-    loadExtensions().then(() => loadFiles());
+    try {
+      await loadExtensions();
+      await loadFiles();
+      syncLocationState();
+    } catch {}
   }
 
-  function navigateToDirectory(relativePath: string) {
+  async function navigateToDirectory(relativePath: string) {
     if (!readSession()) { forceLogout('Session expired: please log in again'); return; }
     if (ui.currentDir !== relativePath) { ui.selectedFiles.clear(); updateSelectedCount(); }
     ui.currentDir = relativePath;
     ui.page = 1;
-    loadExtensions().then(() => loadFiles());
+    try {
+      await loadExtensions();
+      await loadFiles();
+      syncLocationState();
+    } catch {}
   }
 
   function changePageBy(delta: number) {
@@ -569,7 +683,6 @@
       openArchiveLightbox(currentFile);
       return;
     }
-    if (isVideoFile(currentFile.extension)) return;
     const nextIndex = ui.visibleMediaFiles.findIndex((f: any) => f.path === filePath);
     if (nextIndex === -1) return;
     ui.lightboxIndex = nextIndex;
@@ -578,6 +691,7 @@
     setBodyScrollLocked(true);
     resetLightboxZoom();
     syncLightboxState();
+    syncLocationState();
   }
 
   function closeLightbox() {
@@ -600,6 +714,7 @@
     ui.lightboxImageNaturalWidth = 0;
     ui.lightboxImageNaturalHeight = 0;
     setBodyScrollLocked(false);
+    syncLocationState();
   }
 
   function syncLightboxState() {
@@ -682,6 +797,7 @@
     lightboxZipFiles = [];
     lightboxZipBreadcrumbs = [{ label: '/', path: '' }];
     setBodyScrollLocked(true);
+    syncLocationState();
 
     try {
       const query = new URLSearchParams({ path: file.path });
@@ -897,6 +1013,7 @@
     updateLightboxZoomControls();
     updateLightboxImageStyle();
     restoreLightboxCenterAnchor(anchor);
+    syncLocationState();
   }
 
   function nudgeLightboxZoom(direction: number) {
@@ -971,15 +1088,22 @@
     closeLightbox();
   }
 
+  let appInitialized = false;
+
   $effect(() => {
-    if (typeof window !== 'undefined') {
-      const existingSession = readSession();
-      if (!authEnabled || existingSession) {
-        showApp();
-        initializeApp();
-      } else {
-        showLogin();
-      }
+    if (typeof window === 'undefined' || appInitialized) return;
+    appInitialized = true;
+    const existingSession = readSession();
+    if (!authEnabled || existingSession) {
+      const initialLocation = readInitialLocationState();
+      ui.currentDir = initialLocation.directory;
+      ui.requestedExtensions = new Set(initialLocation.selectedExtensions);
+      ui.selectedExtensions = new Set(initialLocation.selectedExtensions);
+      pendingInitialLightboxPath = initialLocation.filePath;
+      showApp();
+      initializeApp(initialLocation.zoomValue);
+    } else {
+      showLogin();
     }
   });
 
@@ -1015,7 +1139,6 @@
     bind:passwordVisible
     bind:loginStatusText
     bind:loginPending
-      sessionExpiryLabel={sessionExpiryLabel}
     onLogin={handleLogin}
   />
 {/if}
@@ -1030,6 +1153,9 @@
       <div class="flex flex-wrap items-center gap-3">
         <div class="rounded-full border border-slate-800 bg-slate-900 px-4 py-2 text-sm text-slate-300">{sessionInfoText}</div>
         <div class="rounded-full border border-slate-800 bg-slate-900 px-4 py-2 text-sm text-slate-300">{summaryText}</div>
+        {#if totalSizeText}
+          <div class="rounded-full border border-slate-800 bg-slate-900 px-4 py-2 text-sm text-slate-300">{totalSizeText}</div>
+        {/if}
         {#if authEnabled}
           <button onclick={handleLogout} type="button" aria-label="Log out" class="group relative inline-flex h-11 w-11 items-center justify-center rounded-full border border-slate-700 bg-slate-900 text-slate-100 transition hover:border-rose-500 hover:text-rose-200">
             <svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3.75 4.5A2.25 2.25 0 0 1 6 2.25h4a.75.75 0 0 1 0 1.5H6A.75.75 0 0 0 5.25 4.5v11A.75.75 0 0 0 6 16.25h4a.75.75 0 0 1 0 1.5H6a2.25 2.25 0 0 1-2.25-2.25v-11Zm8.22 2.72a.75.75 0 0 1 1.06 0l3.25 3.25a.75.75 0 0 1 0 1.06l-3.25 3.25a.75.75 0 1 1-1.06-1.06l1.97-1.97H8.75a.75.75 0 0 1 0-1.5h5.19l-1.97-1.97a.75.75 0 0 1 0-1.06Z" clip-rule="evenodd" /></svg>
@@ -1040,14 +1166,16 @@
     </div>
 
     <section class="rounded-2xl border border-slate-800 bg-slate-900/80 p-5 shadow-2xl shadow-slate-950/40">
-      <div class="flex flex-wrap items-end justify-between gap-4">
-        <div class="flex flex-wrap items-center gap-2">
-          {#each breadcrumbs as item, index}
-            <div class="flex items-center gap-2">
-              <button type="button" class="rounded-full border border-slate-700 bg-slate-950 px-3 py-1 text-xs font-medium text-slate-200 transition hover:border-cyan-500 hover:text-cyan-300" onclick={() => navigateToDirectory(item.path)}>{item.label}</button>
-              {#if index < breadcrumbs.length - 1}<span class="text-slate-600">/</span>{/if}
-            </div>
-          {/each}
+      <div class="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <div class="flex flex-wrap items-center gap-2">
+            {#each breadcrumbs as item, index}
+              <div class="flex items-center gap-2">
+                <button type="button" class="rounded-full border border-slate-700 bg-slate-950 px-3 py-1 text-xs font-medium text-slate-200 transition hover:border-cyan-500 hover:text-cyan-300" onclick={() => navigateToDirectory(item.path)}>{item.label}</button>
+                {#if index < breadcrumbs.length - 1}<span class="text-slate-600">/</span>{/if}
+              </div>
+            {/each}
+          </div>
         </div>
         <div class="flex flex-wrap items-center gap-3 text-sm text-slate-400">
           <div class="inline-flex rounded-xl border border-slate-700 bg-slate-950 p-1">
@@ -1068,12 +1196,13 @@
         </div>
       </div>
 
-      <div class="mt-4 flex flex-wrap gap-2">
+      <div class="mt-1 flex flex-wrap gap-2">
         {#each availableExtensions as extension}
           <button type="button" class="rounded-full border px-3 py-1 text-xs font-semibold {selectedExtensionsList.includes(extension) ? 'border-cyan-400 bg-cyan-400/10 text-cyan-300' : 'border-slate-700 bg-slate-950 text-slate-300 transition hover:border-cyan-500 hover:text-cyan-300'}" onclick={() => toggleExtensionSelection(extension)}>.{extension}</button>
         {/each}
       </div>
 
+      {#if inUploadDir}
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <div
         class="mt-4 rounded-2xl border-2 border-dashed px-6 py-10 text-center transition {dropzoneActive ? 'border-cyan-500 bg-cyan-500/5' : 'border-slate-700 bg-slate-950/60 hover:border-cyan-500 hover:bg-cyan-500/5'}"
@@ -1083,7 +1212,7 @@
         ondrop={(e) => { e.preventDefault(); dropzoneActive = false; uploadFiles(e.dataTransfer?.files ?? null); }}
       >
         <p class="text-lg font-medium text-slate-100">Drop files here or use the upload button</p>
-        <p class="mt-2 text-sm text-slate-400">Uploaded files are written to the <code class="rounded bg-slate-800 px-1.5 py-0.5 text-slate-200">{uploadDir}</code> directory.</p>
+        <p class="mt-2 text-sm text-slate-400">Uploaded files are written to this directory.</p>
         <div class="mt-5 flex flex-wrap items-center justify-center gap-3">
           <button aria-label="Upload files" onclick={() => { if (!uploadBusy) fileInputOpenToken += 1; }} disabled={uploadBusy} type="button" class="group relative inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-cyan-500 text-slate-950 transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-40">
             <svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 2.75a.75.75 0 0 1 .75.75v7.19l1.97-1.97a.75.75 0 1 1 1.06 1.06l-3.25 3.25a.75.75 0 0 1-1.06 0L6.22 9.78a.75.75 0 0 1 1.06-1.06l1.97 1.97V3.5A.75.75 0 0 1 10 2.75ZM4.5 13.25A.75.75 0 0 1 5.25 14v1.5c0 .414.336.75.75.75h8a.75.75 0 0 0 .75-.75V14a.75.75 0 0 1 1.5 0v1.5A2.25 2.25 0 0 1 14 17.75H6A2.25 2.25 0 0 1 3.75 15.5V14a.75.75 0 0 1 .75-.75Z" clip-rule="evenodd" /></svg>
@@ -1113,10 +1242,10 @@
           </div>
         {/if}
       </div>
+      {/if}
 
       <div class="mt-4 text-sm text-slate-400">{statusText}</div>
 
-      <div class="mt-4 rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
         {#if directories.length === 0 && files.length === 0}
           <div>No items in this directory.</div>
         {/if}
@@ -1156,7 +1285,7 @@
                 <p class="mb-3 text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Folders</p>
                 <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                   {#each directories as directory (directory.path)}
-          <div class="relative" bind:this={pageSizeContainerRef}>
+           <div class="relative">
                       <input class="absolute left-3 top-3 z-10 size-4 rounded border-slate-600 bg-slate-950 text-cyan-400" type="checkbox" checked={ui.selectedFiles.has(directory.path)} onchange={(e) => setFileSelection(directory.path, e.currentTarget.checked)} />
                       <button type="button" class="flex min-h-28 w-full flex-col justify-between rounded-2xl border border-slate-800 bg-slate-900/50 p-4 pl-10 text-left transition hover:border-cyan-500 hover:bg-slate-900" onclick={() => navigateToDirectory(directory.path)}>
                         <span class="text-3xl">&#128193;</span>
@@ -1182,12 +1311,12 @@
                           {#if isImageFile(file.extension)}
                             <img class="h-full w-full object-cover" src={thumbnailSupportedExtensions.includes(file.extension) ? getThumbnailUrl(file.path) : getMediaUrl(file.path)} alt={file.name} loading="lazy" />
                           {:else if isVideoFile(file.extension)}
-                            <div class="flex h-full items-center justify-center text-4xl text-slate-500">&#127916;</div>
+                            <img class="h-full w-full object-cover" src={getThumbnailUrl(file.path)} alt={file.name} loading="lazy" />
                           {:else}
                             <div class="flex h-full items-center justify-center text-4xl text-slate-500">.{file.extension || 'file'}</div>
                           {/if}
                         </div>
-                        {#if isImageFile(file.extension)}
+                        {#if isImageFile(file.extension) || isVideoFile(file.extension)}
                           <button type="button" aria-label="Open media viewer" class="absolute right-3 top-3 hidden h-10 w-10 items-center justify-center rounded-full border border-slate-700 bg-slate-950/85 text-slate-100 shadow-lg transition hover:border-cyan-500 hover:text-cyan-300 group-hover:flex" onclick={(e) => { e.preventDefault(); e.stopPropagation(); openLightbox(file.path); }}>
                             <svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M12.25 3.5a.75.75 0 0 1 .75-.75h3.5a.75.75 0 0 1 .75.75V7a.75.75 0 0 1-1.5 0V5.31l-4.22 4.22a.75.75 0 1 1-1.06-1.06l4.22-4.22H13a.75.75 0 0 1-.75-.75Zm-4.5 13a.75.75 0 0 1-.75.75H3.5a.75.75 0 0 1-.75-.75V13a.75.75 0 0 1 1.5 0v1.69l4.22-4.22a.75.75 0 0 1 1.06 1.06l-4.22 4.22H7a.75.75 0 0 1 .75.75Zm8.75-3.5a.75.75 0 0 1 .75.75v2.75a.75.75 0 0 1-.75.75h-2.75a.75.75 0 0 1 0-1.5h1.69l-4.22-4.22a.75.75 0 0 1 1.06-1.06l4.22 4.22V13.75a.75.75 0 0 1 .75-.75Zm-13-9.5a.75.75 0 0 1 .75-.75H7a.75.75 0 0 1 0 1.5H5.31l4.22 4.22a.75.75 0 1 1-1.06 1.06L4.25 5.31V7a.75.75 0 0 1-1.5 0V3.5Z" clip-rule="evenodd" /></svg>
                           </button>
@@ -1200,7 +1329,7 @@
                         <input class="absolute left-3 top-3 size-4 rounded border-slate-600 bg-slate-950 text-cyan-400" type="checkbox" checked={ui.selectedFiles.has(file.path)} onchange={(e) => setFileSelection(file.path, e.currentTarget.checked)} />
                       </div>
                       <div class="space-y-2 p-4">
-                        {#if isZipFile(file.extension)}
+                        {#if isZipFile(file.extension) || isVideoFile(file.extension)}
                           <button type="button" class="block w-full truncate text-left font-semibold text-slate-100 underline-offset-4 transition hover:text-cyan-300 hover:underline" onclick={(e) => { e.preventDefault(); e.stopPropagation(); openLightbox(file.path); }}>{file.name}</button>
                         {:else}
                           <a class="block truncate font-semibold text-slate-100 underline-offset-4 hover:text-cyan-300 hover:underline" href={getDownloadUrl(file.path)}>{file.name}</a>
@@ -1219,7 +1348,6 @@
             {/if}
           </div>
         {/if}
-      </div>
 
       <div class="mt-5 flex flex-wrap items-center gap-3 text-sm text-slate-400">
         <button aria-label="Previous page" onclick={() => changePageBy(-1)} disabled={!canGoPrev} type="button" class="group relative inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-700 bg-slate-950 font-semibold text-slate-100 transition hover:border-cyan-500 hover:text-cyan-300 disabled:cursor-not-allowed disabled:opacity-40">
@@ -1236,7 +1364,7 @@
         </button>
         <div class="flex items-center gap-2">
           <span>Page size</span>
-          <div class="relative">
+          <div class="relative" bind:this={pageSizeContainerRef}>
             <button onclick={() => pageSizeMenuOpen = !pageSizeMenuOpen} type="button" class="inline-flex min-w-24 items-center justify-between gap-2 rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100 outline-none transition hover:border-cyan-500">
               <span>{pageSizeDisplay}</span>
               <svg class="h-4 w-4 text-slate-500" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 0 1 1.06.02L10 11.168l3.71-3.938a.75.75 0 1 1 1.08 1.04l-4.25 4.5a.75.75 0 0 1-1.08 0l-4.25-4.5a.75.75 0 0 1 .02-1.06Z" clip-rule="evenodd" /></svg>
