@@ -2,14 +2,15 @@
 
 ## Summary
 
-`file-manager` is a single-file Node.js web app for browsing and managing files from a browser. It supports authenticated access, directory navigation, uploads, downloads, archive inspection, selection-based zip export, deletion, image thumbnails, and browser-playable video preparation.
+`file-manager` is a SvelteKit file browser and manager that ports the behavior of the original `file-manager.mjs` standalone server into a componentized app. It supports authenticated access, directory navigation, uploads, downloads, archive inspection, selection-based zip export, deletion, folder creation inside the upload subtree, image thumbnails, raw-image browser preview conversion, and browser-playable video preparation.
 
 ## Goals
 
 - Provide a lightweight self-hosted file browser.
-- Keep deployment simple: one app file, minimal dependencies, no database.
+- Keep deployment simple: filesystem-backed storage, no database, minimal external services.
 - Support image and video-heavy folders with grid previews.
 - Support multiple configured root directories without creating synthetic directories on disk.
+- Preserve the behavior of the original standalone implementation while using a modern SvelteKit structure.
 
 ## Non-Goals
 
@@ -20,10 +21,12 @@
 
 ## Runtime Model
 
-- Server: Node.js HTTP server.
+- Server: SvelteKit route handlers and hooks.
+- Client: Svelte 5 component UI.
 - Storage: direct filesystem access.
-- State: in-memory sessions and video conversion status.
-- Config: `.env` and `.env.local` loaded from the startup base directory.
+- Server state: in-memory sessions plus in-memory image/video conversion status.
+- Client state: in-memory UI state plus browser `sessionStorage` for auth sessions.
+- Config: `.env` and `.env.local` loaded from `FILE_MANAGER_ROOT_DIR` or `process.cwd()`.
 
 ## Configuration
 
@@ -37,7 +40,7 @@ Supported config keys:
 
 ### `root-dir`
 
-- Empty or unset: serve the startup directory or `--dir` directory.
+- Empty or unset: serve the configured base directory.
 - Single value: serve that directory.
 - CSV: create a virtual top-level directory composed of each configured root.
 - Multiple roots do not create temp dirs, symlinks, or other filesystem artifacts.
@@ -53,17 +56,26 @@ root-dir=/Users/me/Photos
 # multiple roots
 root-dir=/Users/me/Photos,/Users/me/Videos
 
-# relative to the startup directory
+# relative to the configured base directory
 root-dir=../shared
 ```
+
+### `upload-dir`
+
+- Defaults to `upload`.
+- Must resolve inside the configured root directory or one of the configured roots.
+- Folder creation and directory deletion are restricted to this upload subtree.
 
 ## Authentication
 
 - If `password` is empty, auth is disabled.
 - If `password` is set, `username` must also be set.
 - `session-expiry-ms` controls the in-memory session lifetime.
-- Login returns an in-memory session token.
-- Authorized requests use `x-session-token` or `token` query param.
+- Login creates an in-memory session token on the server.
+- The browser stores the active session token in `sessionStorage`.
+- The login screen Remember me option stores username and base64-encoded password in `localStorage`.
+- Authenticated API requests use `x-session-token`.
+- Client-generated media and download URLs also include `token` query params.
 
 ## Core User Flows
 
@@ -72,18 +84,27 @@ root-dir=../shared
 - User opens `/`.
 - App shows either login UI or browser UI.
 - Browser fetches `/api/files` and `/api/extensions` for the current directory.
+- Root-level multi-root browsing shows configured root basenames as folder entries and no files.
 
 ### Filter by extension
 
 - User toggles one or more extension chips.
-- App reloads extensions and files for the current directory.
+- App reloads files for the current directory.
+- If all filtered files disappear but unfiltered files exist, the app clears the filter state and reloads the unfiltered listing.
 
 ### Upload files
 
-- User drags files onto the dropzone or opens file picker.
+- User drags files onto the dropzone or opens the file picker.
 - App checks `/api/upload-target` for naming conflicts.
 - User can overwrite, rename, or cancel.
-- Files are uploaded into `<current-dir>/<upload-dir>`.
+- Files are uploaded into the current directory.
+- Upload UI is only available when the current directory is inside the configured upload subtree.
+
+### Create folder
+
+- User opens the Create folder dialog from the upload action row.
+- App creates the folder through `/api/create_folder`.
+- Folder creation is only allowed inside the configured upload subtree.
 
 ### Download files
 
@@ -92,27 +113,27 @@ root-dir=../shared
 
 ### Preview images
 
-- Grid cards use `/thumbnail`.
+- Grid cards use `/thumbnail` when supported.
 - User can open image lightbox with zoom controls.
 - `.arw` files are treated as images.
 - `.arw` thumbnails are generated on demand.
-- Opening an enlarged `.arw` preview converts it to a cached `.jpg` for browser display.
+- Opening an enlarged `.arw` preview converts it to a cached `.jpg` under `.processed` for browser display.
 
 ### Preview videos
 
-- Grid cards show thumbnail/progress while browser-playable video is prepared.
-- Prepared videos are served from a generated processed output.
+- Grid cards show thumbnail/progress while a browser-playable video is prepared.
+- Prepared videos are served from a generated `.processed/*.mp4` output.
 - Lightbox and grid video playback share playback state.
 
 ### Inspect zip archives
 
-- User opens a `.zip` file in archive lightbox.
+- User opens a `.zip` file in the archive lightbox.
 - App reads archive contents and shows archive-local navigation.
-- Files inside archive can be downloaded individually.
+- Files inside the archive can be downloaded individually.
 
 ### Zip selection
 
-- User selects items in current directory.
+- User selects items in the current directory.
 - App creates a temporary zip and streams it back.
 
 ### Delete selection
@@ -123,31 +144,48 @@ root-dir=../shared
 
 ## API Endpoints
 
-- `GET /`: HTML app shell
+- `GET /`: page shell
 - `POST /api/login`
 - `POST /api/logout`
 - `GET /api/files`
 - `GET /api/extensions`
 - `GET /api/upload-target`
 - `POST /api/upload`
+- `POST /api/create_folder`
 - `POST /api/zip-selection`
 - `POST /api/delete-selection`
 - `GET /api/video-preparation`
 - `GET /api/archive-contents`
 - `GET /media`
+- `HEAD /media`
 - `GET /thumbnail`
 - `GET /download`
+- `HEAD /download`
 - `GET /archive-entry-download`
+
+## URL State
+
+The browser syncs these values into the URL:
+
+- `p`: current directory
+- `ext`: selected extensions
+- `f`: open lightbox file path
+- `z`: image lightbox zoom state
+
+Pagination, page size, and list/grid mode are client state and request parameters, but are not written into the browser URL.
 
 ## Constraints
 
 - Path access is restricted to configured roots.
 - Selection-based actions are restricted to the current directory.
 - Upload directory configuration must remain inside an allowed root.
+- Hidden files and directories are excluded from listings.
 
 ## Operational Notes
 
-- Thumbnail generation uses `sharp` for standard images and `ffmpeg` for `.arw` files.
+- Thumbnail generation uses `sharp` for standard images.
+- `.arw` browser-preview conversion uses `ffmpeg` first, then ImageMagick `convert` as a fallback.
 - Video conversion and video thumbnail generation require `ffmpeg`.
-- Archive listing/download relies on system unzip tooling.
+- Archive listing/download relies on `unzip` or `zipinfo`.
+- Zip export creation uses the `archiver` package.
 - Logging is structured line-based stdout logging.

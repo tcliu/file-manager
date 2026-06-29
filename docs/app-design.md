@@ -2,63 +2,80 @@
 
 ## Architecture Overview
 
-The application is implemented as a single ES module, `file-manager.mjs`, with three major layers in one file:
+The current application is a SvelteKit port of the original `file-manager.mjs` standalone server.
 
-- server/bootstrap
-- request handlers and filesystem services
-- embedded HTML, CSS, and client-side app logic
+Major layers:
 
-This is intentionally monolithic for deployment simplicity.
+- SvelteKit routes under `src/routes`
+- server-side filesystem/media helpers under `src/lib/server`
+- UI components under `src/lib/components`
+- global Tailwind-backed styles in `src/styles.css`
 
-## Startup Sequence
+The original `file-manager.mjs` remains in the repo as a behavioral reference and should not be modified.
 
-1. Parse CLI args.
-2. Load `.env` and `.env.local` from the startup base directory.
-3. Resolve configured roots.
-4. Validate root existence and uniqueness constraints.
-5. Create root upload directory only for single-root mode.
-6. Start HTTP server.
+## Runtime Entry Points
+
+### Development
+
+- `npm run dev`
+- Vite dev server serves the SvelteKit app.
+
+### Production-style local run
+
+- `npm run start`
+- `start.mjs` builds the app if needed, finds an available port, and runs `vite preview`.
 
 ## Configuration Model
 
-- CLI config handles port and startup base directory.
-- Env config handles auth, upload dir, and root dirs.
+- Base config directory comes from `FILE_MANAGER_ROOT_DIR` or `process.cwd()`.
 - `.env.local` overrides `.env`.
+- Env config handles auth, upload dir, and root dirs.
+- `session-expiry-ms` falls back to `3600000` when invalid.
 
 ## Root Directory Model
 
 ### Single Root
 
-- `rootDir` is a single physical directory.
-- All path resolution is relative to that directory.
+- All path resolution is relative to one physical root directory.
 
 ### Multiple Roots
 
-- `rootDirs` stores the set of physical root directories.
+- `root-dir` may contain CSV values.
 - Root view is virtual only.
-- Virtual path resolution maps the first path segment to a configured root basename.
+- The first path segment maps to a configured root basename.
 - No symlinks or temp directories are created.
+- Duplicate basenames are rejected during config load.
 
-Example: `root-dir=/Users/me/Photos,/Users/me/Videos` produces a virtual root with two entries: `Photos/` and `Videos/`.
+Example: `root-dir=/Users/me/Photos,/Users/me/Videos` produces a virtual root with `Photos/` and `Videos/`.
 
 ## Request Routing
 
-Routing is implemented manually by calling a sequence of handler functions in `handleRequest()`.
+Routing uses SvelteKit filesystem routes instead of manual branching.
 
-Request categories:
+Key route groups:
 
-- public page/auth routes
-- authenticated API routes
-- media and download routes
-- mutation routes for upload/zip/delete
+- page load routes: `src/routes/+page.server.ts`, `src/routes/+page.svelte`
+- auth routes: `src/routes/api/login`, `src/routes/api/logout`
+- listing/filter routes: `src/routes/api/files`, `src/routes/api/extensions`
+- mutation routes: `src/routes/api/upload`, `src/routes/api/create_folder`, `src/routes/api/zip-selection`, `src/routes/api/delete-selection`
+- media/download routes: `src/routes/media`, `src/routes/thumbnail`, `src/routes/download`, `src/routes/archive-entry-download`
+- archive/video status routes: `src/routes/api/archive-contents`, `src/routes/api/video-preparation`
+
+## Auth Gate Design
+
+- `src/hooks.server.ts` enforces auth for page/API routes when auth is enabled.
+- Public paths are `/`, `/api/login`, and `/api/logout`.
+- Media/download paths are handled separately to support direct browser requests.
+- Server session records are stored in `globalThis.__fileManagerSessions`.
+- Valid sessions are exposed to the request through `event.locals.session`.
 
 ## Security Model
 
 - Root-constrained path resolution.
 - Current-directory-constrained selection actions.
-- Upload subtree restriction for directory deletion.
-- In-memory auth token validation.
+- Upload subtree restriction for folder creation and directory deletion.
 - Hidden files are excluded from directory listings.
+- Session expiry is enforced on the server.
 
 ## Filesystem Design
 
@@ -73,77 +90,105 @@ Request categories:
 
 - uploads into upload subtree
 - generated thumbnails in `.thumbnails`
-- generated processed videos in `.processed`
-- temporary zip exports in OS temp dir
+- generated processed images/videos in `.processed`
+- temporary zip exports in the OS temp dir
 
 ## Media Processing Design
 
 ### Images
 
-- Thumbnail generation uses `sharp`.
-- Thumbnail cache is invalidated by source mtime comparison.
+- Thumbnail generation uses `sharp` for browser-supported image types.
+- `.arw` files are treated as images.
+- `.arw` browser preview conversion writes cached `.jpg` output into `.processed`.
+- `.arw` conversion tries `ffmpeg` first and falls back to ImageMagick `convert`.
+- Thumbnail and processed-image caches are invalidated by source mtime comparison.
 
 ### Videos
 
-- A browser-playable `.mp4` is generated when needed.
+- Browser-playable `.mp4` output is generated on demand in `.processed`.
 - Progress state is kept in memory.
-- Video thumbnails are generated with `ffmpeg`.
+- Video thumbnails are generated with `ffmpeg` into `.thumbnails`.
+- Grid and lightbox share video playback state through client-managed coordination.
 
 ## Archive Design
 
 - Only `.zip` preview is supported.
-- Archive directory listing is read from unzip tooling.
+- Archive listing is read through `unzip -Z -l -T` or `zipinfo -l -T`.
 - Archive entries are not extracted globally; requested entries are streamed on demand.
+- Selection zip export creation uses `archiver`.
 
 ## Client App Design
 
-The browser app is embedded in `renderPage()` and exposed through `fileManagerApp()`.
+### Route Shell
 
-Primary client responsibilities:
+- `+page.server.ts` loads auth and media-extension configuration.
+- `+page.svelte` renders the root `FileManager` component.
+
+### Main Components
+
+- `FileManager.svelte`: top-level browser state and orchestration
+- `Login.svelte`: auth form and remembered credential restore
+- `Lightbox.svelte`: image/video/archive preview surface
+- `ConfirmDialog.svelte`, `UploadConflictDialog.svelte`, `CreateFolderDialog.svelte`: focused modal flows
+
+### Primary Client Responsibilities
 
 - session handling
 - navigation and URL sync
 - filters and pagination
 - uploads and conflict handling
 - selection state
+- create-folder flow
 - lightbox state
 - archive preview state
 - shared video playback state
 
+## Client Storage Design
+
+- Active auth session token is stored in `sessionStorage`.
+- Remembered login credentials are stored in `localStorage` when the user enables Remember me.
+- Remembered password is stored base64-encoded, not encrypted.
+
 ## URL State Design
 
-The client syncs major navigation state into the URL, including:
+The client syncs selected navigation state into the URL:
 
-- current directory
-- extension filters
-- open file/lightbox path
-- image zoom state
+- current directory via `p`
+- extension filters via repeated `ext`
+- open lightbox path via `f`
+- image zoom state via `z`
 
-This enables refresh-safe navigation and deep linking.
+This enables refresh-safe navigation and deep linking for the current folder, filters, and lightbox state.
+
+## Styling Design
+
+- Tailwind CSS v4 is imported through `src/styles.css` and built with the Vite Tailwind plugin.
+- Repeated utility combinations are collapsed into small `fm-*` helper classes in `src/styles.css`.
+- Component markup still uses utility classes directly where that remains the clearest representation.
 
 ## Logging Design
 
 - Access and lifecycle events are logged to stdout.
 - Logs are structured as timestamped key-value lines.
-- Startup, shutdown, login, logout, navigation, upload, archive, thumbnail, and conversion events are logged.
+- Navigation, upload, download, archive, thumbnail, image conversion, and video conversion events are logged.
 
 ## Key Tradeoffs
 
 ### Advantages
 
-- Very easy to deploy.
-- Minimal moving parts.
-- Clear end-to-end control flow.
+- Clear separation between routes, server helpers, and UI components.
+- Preserves the original app behavior while improving maintainability.
+- Still lightweight to deploy locally.
 
 ### Costs
 
-- Large single file is harder to evolve.
-- Client and server concerns are tightly coupled.
-- No test harness or module boundaries yet.
+- Filesystem and media concerns are still tightly coupled to one app runtime.
+- Some legacy endpoint naming remains mixed (`create_folder` alongside kebab-case routes).
+- Client state is still centralized in a large `FileManager` component.
 
 ## Recommended Future Refactors
 
-- Split server, services, and client template generation.
-- Add tests around path resolution and multi-root behavior.
-- Add docs for external tool dependencies like `ffmpeg` and `unzip`.
-- Consider persistent configuration and session storage if multi-user support becomes necessary.
+- Split `FileManager.svelte` into smaller stateful view modules.
+- Standardize API route naming if backward compatibility is not needed.
+- Add tests around auth behavior, path resolution, and multi-root browsing.
+- Add explicit docs for media/download auth handling if that behavior is tightened or redesigned.
