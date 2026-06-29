@@ -209,6 +209,8 @@
     requestedExtensions: new Set<string>(),
     selectedExtensions: new Set<string>(),
     visibleMediaFiles: [] as any[],
+    totalMedia: 0,
+    mediaOffset: 0,
     lightboxIndex: -1,
     lightboxPath: "",
     lightboxLoadToken: 0,
@@ -726,6 +728,8 @@
     ui.visibleMediaFiles = data.files.filter(
       (f: any) => isImageFile(f.extension) || isVideoFile(f.extension),
     );
+    ui.totalMedia = data.totalMedia ?? 0;
+    ui.mediaOffset = data.mediaOffset ?? 0;
     directories = data.directories;
     files = data.files;
     pageInfoText = String(data.totalPages);
@@ -1460,6 +1464,11 @@
         text: "." + (currentFile.extension || "none"),
         badge: true,
       },
+      {
+        key: "position",
+        text: `${ui.mediaOffset + ui.lightboxIndex + 1} / ${ui.totalMedia}`,
+        badge: false,
+      },
       { key: "size", text: formatBytes(currentFile.size), badge: false },
       ...(formatImageDimensions(currentFile)
         ? [
@@ -1894,13 +1903,32 @@
     lightboxZipBreadcrumbs = items;
   }
 
-  function stepLightbox(direction: number) {
+  async function stepLightbox(direction: number) {
     if (lightboxMode === "zip" || !ui.visibleMediaFiles.length) return;
     const nextIndex = ui.lightboxIndex + direction;
-    if (nextIndex < 0 || nextIndex >= ui.visibleMediaFiles.length) return;
-    ui.lightboxIndex = nextIndex;
-    ui.lightboxPath = ui.visibleMediaFiles[nextIndex].path;
-    syncLightboxState();
+    if (nextIndex >= 0 && nextIndex < ui.visibleMediaFiles.length) {
+      ui.lightboxIndex = nextIndex;
+      ui.lightboxPath = ui.visibleMediaFiles[nextIndex].path;
+      syncLightboxState();
+      return;
+    }
+    if (direction > 0 && ui.page < ui.totalPages) {
+      ui.page += 1;
+      await loadFiles();
+      if (ui.visibleMediaFiles.length > 0) {
+        ui.lightboxIndex = 0;
+        ui.lightboxPath = ui.visibleMediaFiles[0].path;
+        syncLightboxState();
+      }
+    } else if (direction < 0 && ui.page > 1) {
+      ui.page -= 1;
+      await loadFiles();
+      if (ui.visibleMediaFiles.length > 0) {
+        ui.lightboxIndex = ui.visibleMediaFiles.length - 1;
+        ui.lightboxPath = ui.visibleMediaFiles[ui.visibleMediaFiles.length - 1].path;
+        syncLightboxState();
+      }
+    }
   }
 
   function getArchiveEntryDownloadUrl(file: any): string {

@@ -161,7 +161,10 @@
               <div
                 class="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-400"
               >
-                {#each metaItems as item (item.key)}
+                {#each metaItems as item, i (item.key)}
+                  {#if !item.badge && i > 0 && !metaItems[i - 1].badge}
+                    <span class="text-slate-600">|</span>
+                  {/if}
                   <span
                     class={item.badge
                       ? "rounded-full border border-slate-700 px-2 py-1"

@@ -9,7 +9,7 @@ import { enrichImageDimensions, enrichGridFileTimestamps } from '$lib/server/ima
 import { enrichVideoDimensions } from '$lib/server/video';
 import { listExtensions } from '$lib/server/file-utils';
 import { logAccess } from '$lib/server/logging';
-import { DEFAULT_PAGE_SIZE, PAGE_SIZE_OPTIONS } from '$lib/server/constants';
+import { DEFAULT_PAGE_SIZE, PAGE_SIZE_OPTIONS, IMAGE_EXTENSIONS, VIDEO_EXTENSIONS } from '$lib/server/constants';
 import type { PageSizeOption } from '$lib/server/constants';
 
 function parsePageSize(value: string | null): PageSizeOption | number {
@@ -42,6 +42,16 @@ export const GET: RequestHandler = async ({ url, request }) => {
     : listing.files.slice((page - 1) * (pageSize as number), page * (pageSize as number));
   const totalPages = pageSize === 'All' ? 1 : Math.max(1, Math.ceil(total / (pageSize as number)));
 
+  const allFiles = listing.files;
+  const totalMedia = allFiles.filter(
+    (f) => IMAGE_EXTENSIONS.has(f.extension) || VIDEO_EXTENSIONS.has(f.extension),
+  ).length;
+  const mediaOffset = pageSize === 'All'
+    ? 0
+    : allFiles.slice(0, (page - 1) * (pageSize as number))
+        .filter((f) => IMAGE_EXTENSIONS.has(f.extension) || VIDEO_EXTENSIONS.has(f.extension))
+        .length;
+
   await enrichImageDimensions(pagedFiles);
   await enrichVideoDimensions(pagedFiles);
 
@@ -64,6 +74,8 @@ export const GET: RequestHandler = async ({ url, request }) => {
     total,
     totalSize,
     totalPages,
+    totalMedia,
+    mediaOffset,
     pageSizeOptions: [...PAGE_SIZE_OPTIONS],
     selectedExtensions,
   });
