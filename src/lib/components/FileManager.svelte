@@ -2351,7 +2351,7 @@
     </div>
 
     <section
-      class="rounded-lg border border-slate-800 bg-slate-900/80 p-5 shadow-2xl shadow-slate-950/40"
+      class="rounded-2xl border border-slate-800 bg-slate-900/80 p-5 shadow-2xl shadow-slate-950/40"
     >
       <div class="flex flex-wrap items-center justify-between gap-4">
         <div class="flex flex-wrap items-center gap-2">
@@ -2371,7 +2371,7 @@
         </div>
         <div class="flex flex-wrap items-center gap-3 text-sm text-slate-400">
           <div
-            class="inline-flex rounded-md border border-slate-700 bg-slate-950 p-1"
+            class="inline-flex rounded-xl border border-slate-700 bg-slate-950 p-1"
           >
             <button
               onclick={() => setViewMode("list")}

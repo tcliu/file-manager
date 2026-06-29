@@ -54,7 +54,7 @@
     class="mx-auto flex min-h-[calc(100vh-5rem)] max-w-md items-center justify-center"
   >
     <section
-      class="w-full rounded-xl border border-slate-800 bg-slate-900/90 p-6 shadow-2xl shadow-slate-950/50"
+      class="w-full rounded-3xl border border-slate-800 bg-slate-900/90 p-6 shadow-2xl shadow-slate-950/50"
     >
       <div class="mb-6">
         <h1 class="text-3xl font-semibold tracking-tight text-slate-100">
