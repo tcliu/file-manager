@@ -89,7 +89,8 @@
   let loginStatusText = $state("");
   // svelte-ignore state_referenced_locally
   let sessionInfoText = $state(authEnabled ? "" : "Authentication disabled");
-  let summaryText = $state("");
+  let summaryFolderText = $state("");
+  let summaryFileText = $state("");
   let totalSizeText = $state("");
   let selectedCountText = $state("0 selected");
   let statusText = $state("");
@@ -724,8 +725,8 @@
     canGoPrev = data.page > 1;
     canGoNext = data.page < data.totalPages;
     syncBreadcrumbState();
-    summaryText =
-      data.directories.length + " folders, " + data.total + " files";
+    summaryFolderText = data.directories.length + " folders";
+    summaryFileText = data.total + " files";
     totalSizeText = data.total > 0 ? formatBytes(data.totalSize) : "";
     updateSelectedCount();
     statusText =
@@ -2229,7 +2230,12 @@
         <div
           class="rounded-full border border-slate-800 bg-slate-900 px-4 py-2 text-sm text-slate-300"
         >
-          {summaryText}
+          {summaryFolderText}
+        </div>
+        <div
+          class="rounded-full border border-slate-800 bg-slate-900 px-4 py-2 text-sm text-slate-300"
+        >
+          {summaryFileText}
         </div>
         {#if totalSizeText}
           <div
