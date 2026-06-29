@@ -160,11 +160,11 @@
   let backdropClass = $derived(
     mode === "image"
       ? canPan
-        ? "overflow-auto cursor-grab touch-none"
-        : "overflow-auto touch-none"
+        ? "overflow-auto cursor-grab touch-none items-start justify-start"
+        : "overflow-auto touch-none items-center justify-center"
       : mode === "video"
-        ? "overflow-hidden"
-        : "overflow-auto",
+        ? "overflow-hidden items-center justify-center"
+        : "overflow-auto items-center justify-center",
   );
 
 </script>
@@ -331,7 +331,7 @@
     <!-- svelte-ignore a11y_click_events_have_key_events -->
     <div
       id="lightboxBackdrop"
-      class="min-h-0 flex-1 flex items-center justify-center {backdropClass}"
+      class="min-h-0 flex-1 flex {backdropClass}"
       style={dragging ? "cursor: grabbing;" : ""}
       onclick={handleBackdropClick}
       onpointerdown={handleBackdropPointerDown}
