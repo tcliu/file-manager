@@ -94,6 +94,7 @@
   let totalSizeText = $state("");
   let selectedCountText = $state("0 selected");
   let statusText = $state("");
+  let loading = $state(false);
   let pageInfoText = $state("");
   let pageInputValue = $state("1");
   let pageInputMax = $state("1");
@@ -680,7 +681,7 @@
       return;
     }
     updateSessionInfo();
-    statusText = "Loading files...";
+    loading = true;
     const query = new URLSearchParams({
       dir: ui.currentDir,
       page: String(ui.page),
@@ -731,6 +732,7 @@
     updateSelectedCount();
     statusText =
       data.directories.length || data.files.length ? "" : "No items found.";
+    loading = false;
   }
 
   function syncBreadcrumbState() {
@@ -2463,14 +2465,38 @@
         </div>
       {/if}
 
-      <div class="mt-4 text-sm text-slate-400">{statusText}</div>
+      {#if loading && directories.length === 0 && files.length === 0}
+        <div class="mt-6 flex items-center justify-center py-20">
+          <div class="relative h-24 w-24">
+            <span
+              class="absolute left-0 top-0 text-4xl opacity-60"
+              style="animation: float1 2s ease-in-out infinite"
+            >&#128193;</span>
+            <span
+              class="absolute right-0 top-4 text-3xl opacity-40"
+              style="animation: float2 2.5s ease-in-out infinite 0.3s"
+            >&#128196;</span>
+            <span
+              class="absolute bottom-0 left-4 text-2xl opacity-30"
+              style="animation: float3 3s ease-in-out infinite 0.6s"
+            >&#128194;</span>
+          </div>
+        </div>
+        <style>
+          @keyframes float1 { 0%,100% { transform: translateY(0) rotate(0deg); } 50% { transform: translateY(-8px) rotate(3deg); } }
+          @keyframes float2 { 0%,100% { transform: translateY(0) rotate(0deg); } 50% { transform: translateY(-12px) rotate(-4deg); } }
+          @keyframes float3 { 0%,100% { transform: translateY(0) rotate(0deg); } 50% { transform: translateY(-6px) rotate(5deg); } }
+        </style>
+      {:else if statusText}
+        <div class="mt-6 text-sm text-slate-400">{statusText}</div>
+      {/if}
 
-      {#if directories.length === 0 && files.length === 0}
-        <div>No items in this directory.</div>
+      {#if !loading && directories.length === 0 && files.length === 0}
+        <div class="mt-6">No items in this directory.</div>
       {/if}
 
       {#if viewMode === "list" && (directories.length || files.length)}
-        <div class="space-y-3">
+        <div class="mt-6 space-y-3">
           {#each directories as directory (directory.path)}
             <div
               class="flex items-center gap-3 rounded-xl border border-slate-800 bg-slate-900/50 px-4 py-3 transition hover:border-cyan-500 hover:bg-slate-900"
@@ -2538,7 +2564,7 @@
       {/if}
 
       {#if viewMode === "grid" && (directories.length || files.length)}
-        <div class="space-y-6">
+        <div class="mt-6 space-y-6">
           {#if directories.length}
             <div>
               <p
