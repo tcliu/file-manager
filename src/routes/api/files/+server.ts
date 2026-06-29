@@ -6,6 +6,7 @@ import {
   resolveListedDirectoryPath,
 } from '$lib/server/file-utils';
 import { enrichImageDimensions, enrichGridFileTimestamps } from '$lib/server/image';
+import { enrichVideoDimensions } from '$lib/server/video';
 import { listExtensions } from '$lib/server/file-utils';
 import { logAccess } from '$lib/server/logging';
 import { DEFAULT_PAGE_SIZE, PAGE_SIZE_OPTIONS } from '$lib/server/constants';
@@ -42,6 +43,7 @@ export const GET: RequestHandler = async ({ url, request }) => {
   const totalPages = pageSize === 'All' ? 1 : Math.max(1, Math.ceil(total / (pageSize as number)));
 
   await enrichImageDimensions(pagedFiles);
+  await enrichVideoDimensions(pagedFiles);
 
   if (view === 'grid') {
     await enrichGridFileTimestamps(pagedFiles);

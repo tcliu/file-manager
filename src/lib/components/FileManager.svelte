@@ -1377,7 +1377,7 @@
         badge: true,
       },
       { key: "size", text: formatBytes(currentFile.size), badge: false },
-      ...(isImage && formatImageDimensions(currentFile)
+      ...(formatImageDimensions(currentFile)
         ? [
             {
               key: "dimensions",
@@ -2127,6 +2127,9 @@
       event.preventDefault();
       return;
     }
+    if (lightboxMode === "video") {
+      return;
+    }
     closeLightbox();
   }
 
@@ -2754,7 +2757,7 @@
                           >.{file.extension || "none"}</span
                         >
                         <span>{formatBytes(file.size)}</span>
-                        {#if isImageFile(file.extension) && formatImageDimensions(file)}<span
+                        {#if formatImageDimensions(file)}<span
                             >{formatImageDimensions(file)}</span
                           >{/if}
                         <span>{formatDateTime(file.modifiedAt)}</span>

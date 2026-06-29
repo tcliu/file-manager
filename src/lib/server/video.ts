@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import path from 'node:path';
 import { mkdir, rename, rm, stat } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
-import { getProcessedVideoPath, getVideoThumbnailPath } from './file-utils';
+import { getProcessedVideoPath, getVideoThumbnailPath, resolveRootRelativePath } from './file-utils';
 import { logEvent } from './logging';
 import { getRootDirPath } from './config';
 import { THUMBNAIL_MAX_WIDTH, THUMBNAIL_MAX_HEIGHT, VIDEO_THUMBNAIL_QUALITY } from './constants';
@@ -260,4 +260,43 @@ function createVideoThumbnail(sourcePath: string, thumbnailPath: string): Promis
       resolve();
     });
   });
+}
+
+function resolveListedFilePath(relativePath: string): string {
+  return resolveRootRelativePath(relativePath);
+}
+
+function probeVideoDimensions(sourcePath: string): Promise<{ width: number | null; height: number | null }> {
+  return new Promise((resolve) => {
+    const child = spawn('ffprobe', [
+      '-v', 'error', '-select_streams', 'v:0',
+      '-show_entries', 'stream=width,height',
+      '-of', 'csv=p=0', sourcePath,
+    ], { stdio: ['ignore', 'pipe', 'ignore'] });
+    let output = '';
+    child.stdout.on('data', (chunk: Buffer) => { output += chunk.toString(); });
+    child.on('error', () => resolve({ width: null, height: null }));
+    child.on('exit', (code) => {
+      if (code !== 0) { resolve({ width: null, height: null }); return; }
+      const parts = output.trim().split(',');
+      const width = Number(parts[0]);
+      const height = Number(parts[1]);
+      resolve({
+        width: Number.isFinite(width) && width > 0 ? width : null,
+        height: Number.isFinite(height) && height > 0 ? height : null,
+      });
+    });
+  });
+}
+
+export async function enrichVideoDimensions(files: { extension: string; path: string; width?: number; height?: number }[]): Promise<void> {
+  const { VIDEO_EXTENSIONS } = await import('./constants');
+  await Promise.all(files.map(async (file) => {
+    if (!VIDEO_EXTENSIONS.has(file.extension)) return;
+    const dimensions = await probeVideoDimensions(resolveListedFilePath(file.path));
+    if (dimensions.width && dimensions.height) {
+      file.width = dimensions.width;
+      file.height = dimensions.height;
+    }
+  }));
 }
