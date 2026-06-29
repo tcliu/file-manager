@@ -1,6 +1,6 @@
 import path from 'node:path';
-import { writeFile } from 'node:fs/promises';
-import { normalizeUploadFileName, fileExists, suggestAvailableFileName } from './file-utils';
+import { mkdir, writeFile } from 'node:fs/promises';
+import { normalizeUploadRelativePath, fileExists, suggestAvailableFileName } from './file-utils';
 
 export interface UploadResult {
   fileName: string;
@@ -44,14 +44,15 @@ export async function saveMultipartFiles(
 
     if (!filenameMatch?.[1]) continue;
 
-    const originalName = normalizeUploadFileName(filenameMatch[1]);
+    const originalName = normalizeUploadRelativePath(filenameMatch[1]);
     const targetPath = await resolveUploadTargetPath(destinationDir, originalName, overwriteExisting);
 
+    await mkdir(path.dirname(targetPath), { recursive: true });
     await writeFile(targetPath, fileContent);
-    uploaded.push(path.basename(targetPath));
+    uploaded.push(originalName);
 
     if (onFileSaved) {
-      onFileSaved({ fileName: path.basename(targetPath), size: fileContent.length });
+      onFileSaved({ fileName: originalName, size: fileContent.length });
     }
   }
 
@@ -65,8 +66,10 @@ async function resolveUploadTargetPath(destinationDir: string, originalName: str
     return candidate;
   }
 
+  const parsed = path.posix.parse(originalName);
+  const suggestedBaseName = await suggestAvailableFileName(path.join(destinationDir, parsed.dir), parsed.base);
   const error = new Error(`File already exists: ${originalName}`) as Error & { code: string; suggestedName: string };
   error.code = 'EFILEEXISTS';
-  error.suggestedName = await suggestAvailableFileName(destinationDir, originalName);
+  error.suggestedName = parsed.dir ? path.posix.join(parsed.dir, suggestedBaseName) : suggestedBaseName;
   throw error;
 }

@@ -8,6 +8,7 @@ import { getInlineContentType } from '$lib/server/constants';
 import { IMAGE_EXTENSIONS } from '$lib/server/constants';
 import { resolveInlineMedia } from '$lib/server/video';
 import { logAccess } from '$lib/server/logging';
+import { createReadableStreamFromNode } from '$lib/server/stream';
 
 export const GET: RequestHandler = async ({ url, request }) => {
   const relativePath = url.searchParams.get('path');
@@ -45,13 +46,7 @@ async function streamInlineFile(request: Request, filePath: string, fileStat: im
 
   if (!rangeHeader) {
     const stream = createReadStream(filePath);
-    const webStream = new ReadableStream({
-      start(controller) {
-        stream.on('data', (chunk) => controller.enqueue(new Uint8Array(typeof chunk === 'string' ? Buffer.from(chunk) : chunk)));
-        stream.on('end', () => controller.close());
-        stream.on('error', (err) => controller.error(err));
-      },
-    });
+    const webStream = createReadableStreamFromNode(stream, request.signal);
 
     return new Response(webStream, {
       status: 200,
@@ -104,13 +99,7 @@ async function streamInlineFile(request: Request, filePath: string, fileStat: im
   const contentLength = rangeEnd - rangeStart + 1;
 
   const stream = createReadStream(filePath, { start: rangeStart, end: rangeEnd });
-  const webStream = new ReadableStream({
-    start(controller) {
-      stream.on('data', (chunk) => controller.enqueue(new Uint8Array(typeof chunk === 'string' ? Buffer.from(chunk) : chunk)));
-      stream.on('end', () => controller.close());
-      stream.on('error', (err) => controller.error(err));
-    },
-  });
+  const webStream = createReadableStreamFromNode(stream, request.signal);
 
   return new Response(webStream, {
     status: 206,

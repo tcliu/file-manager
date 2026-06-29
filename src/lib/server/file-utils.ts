@@ -95,6 +95,16 @@ export function normalizeUploadFileName(value: string): string {
   return fileName;
 }
 
+export function normalizeUploadRelativePath(value: string): string {
+  const normalizedPath = path.posix.normalize(`/${String(value || '').replaceAll('\\', '/')}`).replace(/^\//, '');
+
+  if (!normalizedPath || normalizedPath === '.' || normalizedPath.startsWith('..')) {
+    throw new Error('Invalid upload path');
+  }
+
+  return normalizedPath;
+}
+
 export async function suggestAvailableFileName(destinationDir: string, originalName: string): Promise<string> {
   const parsed = path.parse(originalName);
   let index = 1;

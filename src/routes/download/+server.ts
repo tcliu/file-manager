@@ -5,6 +5,7 @@ import type { RequestHandler } from './$types';
 import { resolveListedFilePath } from '$lib/server/file-utils';
 import { IMAGE_EXTENSIONS } from '$lib/server/constants';
 import { logAccess } from '$lib/server/logging';
+import { createReadableStreamFromNode } from '$lib/server/stream';
 
 export const GET: RequestHandler = async ({ url, request }) => {
   const relativePath = url.searchParams.get('path');
@@ -39,13 +40,7 @@ export const GET: RequestHandler = async ({ url, request }) => {
   }
 
   const stream = createReadStream(filePath);
-  const webStream = new ReadableStream({
-    start(controller) {
-      stream.on('data', (chunk) => controller.enqueue(new Uint8Array(typeof chunk === 'string' ? Buffer.from(chunk) : chunk)));
-      stream.on('end', () => controller.close());
-      stream.on('error', (err) => controller.error(err));
-    },
-  });
+  const webStream = createReadableStreamFromNode(stream, request.signal);
 
   return new Response(webStream, {
     status: 200,

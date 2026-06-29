@@ -1,4 +1,8 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
+
+  const REMEMBER_ME_STORAGE_KEY = 'file-manager-remembered-login';
+
   interface Props {
     username: string;
     password: string;
@@ -19,8 +23,28 @@
     onLogin,
   }: Props = $props();
 
+  onMount(() => {
+    const saved = localStorage.getItem(REMEMBER_ME_STORAGE_KEY);
+    if (saved) {
+      try {
+        const { username: u, password: p } = JSON.parse(saved);
+        username = u;
+        password = atob(p);
+        rememberMe = true;
+      } catch {}
+    }
+  });
+
   function handleSubmit(e: Event) {
     e.preventDefault();
+    if (rememberMe) {
+      localStorage.setItem(REMEMBER_ME_STORAGE_KEY, JSON.stringify({
+        username,
+        password: btoa(password),
+      }));
+    } else {
+      localStorage.removeItem(REMEMBER_ME_STORAGE_KEY);
+    }
     onLogin();
   }
 </script>
