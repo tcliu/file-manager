@@ -73,13 +73,36 @@ export function resolveCurrentDirectoryEntryPath(currentDir: string, relativePat
 export function isUploadSubtreePath(currentDir: string, relativePath: string): boolean {
   const config = getAppConfig();
   const normalizedPath = normalizeRelativeDirectory(relativePath);
-  const uploadDirPath = normalizeRelativeDirectory(path.posix.join(currentDir, config.uploadDir));
+  const normalizedUploadDir = normalizeRelativeDirectory(config.uploadDir);
 
-  if (!normalizedPath || !uploadDirPath) {
+  if (!normalizedPath || !normalizedUploadDir) {
     return false;
   }
 
-  return normalizedPath === uploadDirPath || normalizedPath.startsWith(uploadDirPath + '/');
+  const pathSegments = normalizedPath.split('/');
+  const uploadSegments = normalizedUploadDir.split('/');
+
+  for (let start = 0; start <= pathSegments.length - uploadSegments.length; start += 1) {
+    const matchesUploadDir = uploadSegments.every(
+      (segment, index) => pathSegments[start + index] === segment,
+    );
+
+    if (matchesUploadDir) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+export function isWithinConfiguredUploadDir(relativeDir: string): boolean {
+  const normalizedDir = normalizeRelativeDirectory(relativeDir);
+
+  if (!normalizedDir) {
+    return false;
+  }
+
+  return isUploadSubtreePath(normalizedDir, normalizedDir);
 }
 
 export async function fileExists(filePath: string): Promise<boolean> {
@@ -93,6 +116,16 @@ export function normalizeUploadFileName(value: string): string {
     throw new Error('Invalid file name');
   }
   return fileName;
+}
+
+export function normalizeUploadDirectoryName(value: string): string {
+  const directoryName = normalizeUploadFileName(value);
+
+  if (directoryName.includes('/')) {
+    throw new Error('Invalid directory name');
+  }
+
+  return directoryName;
 }
 
 export function normalizeUploadRelativePath(value: string): string {

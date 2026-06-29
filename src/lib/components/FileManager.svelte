@@ -2,6 +2,7 @@
   import Login from "./Login.svelte";
   import Lightbox from "./Lightbox.svelte";
   import ConfirmDialog from "./ConfirmDialog.svelte";
+  import CreateFolderDialog from "./CreateFolderDialog.svelte";
   import UploadConflictDialog from "./UploadConflictDialog.svelte";
 
   interface Props {
@@ -113,6 +114,7 @@
   let hasSelection = $state(false);
   let zipPending = $state(false);
   let deletePending = $state(false);
+  let createFolderPending = $state(false);
   let canGoPrev = $state(false);
   let canGoNext = $state(false);
   let uploadProgressVisible = $state(false);
@@ -144,6 +146,14 @@
   );
   let uploadConflictFileName = $state("");
   let uploadConflictDialogErrorText = $state("");
+
+  let createFolderDialogOpen = $state(false);
+  let createFolderDialogTitleText = $state("Create folder");
+  let createFolderDialogMessageText = $state(
+    "Create a new folder in the current upload directory.",
+  );
+  let createFolderDialogName = $state("");
+  let createFolderDialogErrorText = $state("");
 
   let lightboxOpen = $state(false);
   let lightboxMode = $state("");
@@ -1198,6 +1208,22 @@
     resolve(result);
   }
 
+  function openCreateFolderDialog() {
+    createFolderDialogTitleText = "Create folder";
+    createFolderDialogMessageText =
+      "Create a new folder in the current upload directory.";
+    createFolderDialogName = "";
+    createFolderDialogErrorText = "";
+    createFolderDialogOpen = true;
+  }
+
+  function closeCreateFolderDialog() {
+    if (createFolderPending) return;
+    createFolderDialogOpen = false;
+    createFolderDialogName = "";
+    createFolderDialogErrorText = "";
+  }
+
   async function deleteSelectedFiles() {
     if (!readSession()) {
       forceLogout("Session expired: please log in again");
@@ -1217,7 +1243,7 @@
     });
     if (!confirmed) return;
     deletePending = true;
-    statusText = "Deleting selected files...";
+    statusText = "Deleting selected items...";
     const query = new URLSearchParams({ dir: ui.currentDir });
     const response = await fetch("/api/delete-selection?" + query.toString(), {
       method: "POST",
@@ -1238,6 +1264,57 @@
     await loadFiles();
   }
 
+  async function createFolder() {
+    if (!readSession()) {
+      forceLogout("Session expired: please log in again");
+      return;
+    }
+
+    if (createFolderPending) {
+      return;
+    }
+
+    const trimmedFolderName = createFolderDialogName.trim();
+
+    if (!trimmedFolderName) {
+      createFolderDialogErrorText = "Folder name is required.";
+      return;
+    }
+
+    createFolderPending = true;
+    createFolderDialogErrorText = "";
+    statusText = 'Creating folder "' + trimmedFolderName + '"...';
+
+    try {
+      const query = new URLSearchParams({ dir: ui.currentDir });
+      const response = await fetch("/api/create_folder?" + query.toString(), {
+        method: "POST",
+        headers: { "content-type": "application/json", ...getAuthHeaders() },
+        body: JSON.stringify({ name: trimmedFolderName }),
+      });
+      const data = await response.json().catch(() => ({}));
+
+      if (response.status === 401) {
+        closeCreateFolderDialog();
+        forceLogout("Session expired: please log in again");
+        return;
+      }
+
+      if (!response.ok) {
+        createFolderDialogErrorText = data.error ?? "Failed to create folder";
+        return;
+      }
+
+      createFolderDialogOpen = false;
+      createFolderDialogName = "";
+      statusText = 'Created folder "' + trimmedFolderName + '"';
+      await loadExtensions();
+      await loadFiles();
+    } finally {
+      createFolderPending = false;
+    }
+  }
+
   function handleKeydown(event: KeyboardEvent) {
     if (event.key === "Escape") {
       if (confirmDialogOpen) {
@@ -1246,6 +1323,10 @@
       }
       if (uploadConflictDialogOpen) {
         closeUploadConflictDialog({ action: "cancel" });
+        return;
+      }
+      if (createFolderDialogOpen) {
+        closeCreateFolderDialog();
         return;
       }
       if (lightboxOpen) {
@@ -2261,7 +2342,7 @@
               /></svg
             >
             <span
-              class="pointer-events-none absolute -bottom-8 left-1/2 z-30 -translate-x-1/2 whitespace-nowrap rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-200 opacity-0 shadow-lg transition group-hover:opacity-100"
+              class="pointer-events-none absolute -bottom-8 left-1/2 z-30 -translate-x-1/2 whitespace-nowrap rounded border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-200 opacity-0 shadow-lg transition group-hover:opacity-100"
               >Log out</span
             >
           </button>
@@ -2270,7 +2351,7 @@
     </div>
 
     <section
-      class="rounded-2xl border border-slate-800 bg-slate-900/80 p-5 shadow-2xl shadow-slate-950/40"
+      class="rounded-lg border border-slate-800 bg-slate-900/80 p-5 shadow-2xl shadow-slate-950/40"
     >
       <div class="flex flex-wrap items-center justify-between gap-4">
         <div class="flex flex-wrap items-center gap-2">
@@ -2290,14 +2371,14 @@
         </div>
         <div class="flex flex-wrap items-center gap-3 text-sm text-slate-400">
           <div
-            class="inline-flex rounded-xl border border-slate-700 bg-slate-950 p-1"
+            class="inline-flex rounded-md border border-slate-700 bg-slate-950 p-1"
           >
             <button
               onclick={() => setViewMode("list")}
               type="button"
               aria-label="List view"
               title="List view"
-              class="rounded-lg px-3 py-1.5 font-semibold {viewMode === 'list'
+              class="rounded px-3 py-1.5 font-semibold {viewMode === 'list'
                 ? 'bg-cyan-500 text-slate-950'
                 : 'text-slate-300 transition hover:text-cyan-300'}"
             >
@@ -2317,7 +2398,7 @@
               type="button"
               aria-label="Grid view"
               title="Grid view"
-              class="rounded-lg px-3 py-1.5 font-semibold {viewMode === 'grid'
+              class="rounded px-3 py-1.5 font-semibold {viewMode === 'grid'
                 ? 'bg-cyan-500 text-slate-950'
                 : 'text-slate-300 transition hover:text-cyan-300'}"
             >
@@ -2355,7 +2436,7 @@
       {#if inUploadDir}
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <div
-          class="mt-4 rounded-2xl border-2 border-dashed p-6 text-center transition {dropzoneActive
+          class="mt-4 rounded-lg border-2 border-dashed p-6 text-center transition {dropzoneActive
             ? 'border-cyan-500 bg-cyan-500/5'
             : 'border-slate-700 bg-slate-950/60 hover:border-cyan-500 hover:bg-cyan-500/5'}"
           ondragenter={(e) => {
@@ -2380,13 +2461,30 @@
           </p>
           <div class="mt-5 flex flex-wrap items-center justify-center gap-3">
             <button
+              aria-label="Create folder"
+              onclick={openCreateFolderDialog}
+              disabled={uploadBusy || createFolderPending}
+              type="button"
+              class="group relative inline-flex h-12 w-12 items-center justify-center rounded-lg border border-emerald-800 bg-emerald-950/40 text-emerald-200 transition hover:border-emerald-500 hover:text-emerald-100 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"
+                ><path
+                  d="M2.75 5A2.25 2.25 0 0 1 5 2.75h3.19c.497 0 .974.198 1.326.549l1.185 1.186c.07.07.166.109.265.109H15A2.25 2.25 0 0 1 17.25 6.75v7.5A2.25 2.25 0 0 1 15 16.5H5a2.25 2.25 0 0 1-2.25-2.25V5Zm9 2.25a.75.75 0 0 0-1.5 0v1.5h-1.5a.75.75 0 0 0 0 1.5h1.5v1.5a.75.75 0 0 0 1.5 0v-1.5h1.5a.75.75 0 0 0 0-1.5h-1.5v-1.5Z"
+                /></svg
+              >
+              <span
+                class="pointer-events-none absolute -bottom-8 left-1/2 z-30 -translate-x-1/2 whitespace-nowrap rounded border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-200 opacity-0 shadow-lg transition group-hover:opacity-100"
+                >Create folder</span
+              >
+            </button>
+            <button
               aria-label="Upload files"
               onclick={() => {
                 if (!uploadBusy) fileInputOpenToken += 1;
               }}
               disabled={uploadBusy}
               type="button"
-              class="group relative inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-cyan-500 text-slate-950 transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-40"
+              class="group relative inline-flex h-12 w-12 items-center justify-center rounded-lg bg-cyan-500 text-slate-950 transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-40"
             >
               <svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"
                 ><path
@@ -2396,7 +2494,7 @@
                 /></svg
               >
               <span
-                class="pointer-events-none absolute -bottom-8 left-1/2 z-30 -translate-x-1/2 whitespace-nowrap rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-200 opacity-0 shadow-lg transition group-hover:opacity-100"
+                class="pointer-events-none absolute -bottom-8 left-1/2 z-30 -translate-x-1/2 whitespace-nowrap rounded border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-200 opacity-0 shadow-lg transition group-hover:opacity-100"
                 >Upload files</span
               >
             </button>
@@ -2405,7 +2503,7 @@
               onclick={createSelectionZip}
               disabled={!hasSelection || zipPending}
               type="button"
-              class="group relative inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-slate-700 bg-slate-900 text-slate-100 transition hover:border-cyan-500 hover:text-cyan-300 disabled:cursor-not-allowed disabled:opacity-40"
+              class="group relative inline-flex h-12 w-12 items-center justify-center rounded-lg border border-slate-700 bg-slate-900 text-slate-100 transition hover:border-cyan-500 hover:text-cyan-300 disabled:cursor-not-allowed disabled:opacity-40"
             >
               <svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"
                 ><path
@@ -2413,7 +2511,7 @@
                 /></svg
               >
               <span
-                class="pointer-events-none absolute -bottom-8 left-1/2 z-30 -translate-x-1/2 whitespace-nowrap rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-200 opacity-0 shadow-lg transition group-hover:opacity-100"
+                class="pointer-events-none absolute -bottom-8 left-1/2 z-30 -translate-x-1/2 whitespace-nowrap rounded border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-200 opacity-0 shadow-lg transition group-hover:opacity-100"
                 >Download selected as zip</span
               >
             </button>
@@ -2422,7 +2520,7 @@
               onclick={deleteSelectedFiles}
               disabled={!hasSelection || deletePending}
               type="button"
-              class="group relative inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-rose-900 bg-rose-950/40 text-rose-200 transition hover:border-rose-500 hover:text-rose-100 disabled:cursor-not-allowed disabled:opacity-40"
+              class="group relative inline-flex h-12 w-12 items-center justify-center rounded-lg border border-rose-900 bg-rose-950/40 text-rose-200 transition hover:border-rose-500 hover:text-rose-100 disabled:cursor-not-allowed disabled:opacity-40"
             >
               <svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"
                 ><path
@@ -2432,8 +2530,8 @@
                 /></svg
               >
               <span
-                class="pointer-events-none absolute -bottom-8 left-1/2 z-30 -translate-x-1/2 whitespace-nowrap rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-200 opacity-0 shadow-lg transition group-hover:opacity-100"
-                >Delete selected files</span
+                class="pointer-events-none absolute -bottom-8 left-1/2 z-30 -translate-x-1/2 whitespace-nowrap rounded border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-200 opacity-0 shadow-lg transition group-hover:opacity-100"
+                >Delete selected items</span
               >
             </button>
           </div>
@@ -2499,7 +2597,7 @@
         <div class="mt-6 space-y-3">
           {#each directories as directory (directory.path)}
             <div
-              class="flex items-center gap-3 rounded-xl border border-slate-800 bg-slate-900/50 px-4 py-3 transition hover:border-cyan-500 hover:bg-slate-900"
+              class="flex items-center gap-3 rounded-md border border-slate-800 bg-slate-900/50 px-4 py-3 transition hover:border-cyan-500 hover:bg-slate-900"
             >
               <input
                 class="size-4 rounded border-slate-600 bg-slate-950 text-cyan-400"
@@ -2523,7 +2621,7 @@
 
           {#each files as file (file.path)}
             <label
-              class="flex flex-wrap items-center gap-3 rounded-xl border border-slate-800 bg-slate-900/30 px-4 py-3 hover:bg-slate-900/60"
+              class="flex flex-wrap items-center gap-3 rounded-md border border-slate-800 bg-slate-900/30 px-4 py-3 hover:bg-slate-900/60"
             >
               <input
                 class="size-4 rounded border-slate-600 bg-slate-950 text-cyan-400"
@@ -2587,7 +2685,7 @@
                     />
                     <button
                       type="button"
-                      class="flex min-h-28 w-full flex-col justify-between rounded-2xl border border-slate-800 bg-slate-900/50 p-4 pl-10 text-left transition hover:border-cyan-500 hover:bg-slate-900"
+                      class="flex min-h-28 w-full flex-col justify-between rounded-lg border border-slate-800 bg-slate-900/50 p-4 pl-10 text-left transition hover:border-cyan-500 hover:bg-slate-900"
                       onclick={() => navigateToDirectory(directory.path)}
                     >
                       <span class="text-3xl">&#128193;</span>
@@ -2616,7 +2714,7 @@
               >
                 {#each files as file (file.path)}
                   <label
-                    class="overflow-hidden rounded-2xl border border-slate-800 bg-slate-900/40 transition hover:border-cyan-500 hover:bg-slate-900/70"
+                    class="overflow-hidden rounded-lg border border-slate-800 bg-slate-900/40 transition hover:border-cyan-500 hover:bg-slate-900/70"
                   >
                     <div class="group relative">
                       <div class="aspect-[4/3] bg-slate-950">
@@ -2811,7 +2909,7 @@
           onclick={() => changePageBy(-1)}
           disabled={!canGoPrev}
           type="button"
-          class="group relative inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-700 bg-slate-950 font-semibold text-slate-100 transition hover:border-cyan-500 hover:text-cyan-300 disabled:cursor-not-allowed disabled:opacity-40"
+          class="group relative inline-flex h-10 w-10 items-center justify-center rounded-md border border-slate-700 bg-slate-950 font-semibold text-slate-100 transition hover:border-cyan-500 hover:text-cyan-300 disabled:cursor-not-allowed disabled:opacity-40"
         >
           <svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"
             ><path
@@ -2821,7 +2919,7 @@
             /></svg
           >
           <span
-            class="pointer-events-none absolute -bottom-8 left-1/2 z-30 -translate-x-1/2 whitespace-nowrap rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-200 opacity-0 shadow-lg transition group-hover:opacity-100"
+            class="pointer-events-none absolute -bottom-8 left-1/2 z-30 -translate-x-1/2 whitespace-nowrap rounded border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-200 opacity-0 shadow-lg transition group-hover:opacity-100"
             >Previous page</span
           >
         </button>
@@ -2847,7 +2945,7 @@
           }}
           type="number"
           min="1"
-          class="w-20 rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100 outline-none ring-0"
+          class="w-20 rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100 outline-none ring-0"
         />
         <span>of</span>
         <span class="text-slate-400">{pageInfoText}</span>
@@ -2856,7 +2954,7 @@
           onclick={() => changePageBy(1)}
           disabled={!canGoNext}
           type="button"
-          class="group relative inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-700 bg-slate-950 font-semibold text-slate-100 transition hover:border-cyan-500 hover:text-cyan-300 disabled:cursor-not-allowed disabled:opacity-40"
+          class="group relative inline-flex h-10 w-10 items-center justify-center rounded-md border border-slate-700 bg-slate-950 font-semibold text-slate-100 transition hover:border-cyan-500 hover:text-cyan-300 disabled:cursor-not-allowed disabled:opacity-40"
         >
           <svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"
             ><path
@@ -2866,7 +2964,7 @@
             /></svg
           >
           <span
-            class="pointer-events-none absolute -bottom-8 left-1/2 z-30 -translate-x-1/2 whitespace-nowrap rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-200 opacity-0 shadow-lg transition group-hover:opacity-100"
+            class="pointer-events-none absolute -bottom-8 left-1/2 z-30 -translate-x-1/2 whitespace-nowrap rounded border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-200 opacity-0 shadow-lg transition group-hover:opacity-100"
             >Next page</span
           >
         </button>
@@ -2876,7 +2974,7 @@
             <button
               onclick={() => (pageSizeMenuOpen = !pageSizeMenuOpen)}
               type="button"
-              class="inline-flex min-w-24 items-center justify-between gap-2 rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100 outline-none transition hover:border-cyan-500"
+              class="inline-flex min-w-24 items-center justify-between gap-2 rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100 outline-none transition hover:border-cyan-500"
             >
               <span>{pageSizeDisplay}</span>
               <svg
@@ -2892,7 +2990,7 @@
             </button>
             {#if pageSizeMenuOpen}
               <div
-                class="absolute right-0 z-20 mt-2 w-32 overflow-hidden rounded-2xl border border-slate-700 bg-slate-900/95 p-1 shadow-2xl shadow-slate-950/60 backdrop-blur"
+                class="absolute right-0 z-20 mt-2 w-32 overflow-hidden rounded-lg border border-slate-700 bg-slate-900/95 p-1 shadow-2xl shadow-slate-950/60 backdrop-blur"
               >
                 {#each pageSizeOptions as option}
                   <button
@@ -2904,7 +3002,7 @@
                       loadFiles();
                     }}
                     type="button"
-                    class="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm transition {String(
+                    class="flex w-full items-center justify-between rounded-md px-3 py-2 text-left text-sm transition {String(
                       option,
                     ) === pageSizeDisplay
                       ? 'bg-cyan-500/15 text-cyan-200'
@@ -3029,5 +3127,17 @@
     }}
     onOverwrite={() => closeUploadConflictDialog({ action: "overwrite" })}
     onCancel={() => closeUploadConflictDialog({ action: "cancel" })}
+  />
+{/if}
+
+{#if createFolderDialogOpen}
+  <CreateFolderDialog
+    title={createFolderDialogTitleText}
+    message={createFolderDialogMessageText}
+    bind:folderName={createFolderDialogName}
+    errorText={createFolderDialogErrorText}
+    pending={createFolderPending}
+    onCreate={createFolder}
+    onCancel={closeCreateFolderDialog}
   />
 {/if}

@@ -146,7 +146,7 @@
   <div class="flex h-full w-full flex-col gap-2">
     <div class="mx-auto w-full max-w-[min(94vw,1920px)] xl:max-w-[min(calc(100vw-6rem),1920px)]">
       <div
-        class="shrink-0 rounded-2xl border border-slate-800 bg-slate-900/85 px-4 py-2.5 backdrop-blur"
+         class="shrink-0 rounded-lg border border-slate-800 bg-slate-900/85 px-4 py-2.5 backdrop-blur"
       >
         <div class="flex flex-wrap items-start justify-between gap-3">
           <div class="min-w-0 flex-1">
@@ -173,13 +173,13 @@
                 <button
                   onclick={onToggleZoomMenu}
                   type="button"
-                  class="rounded-xl border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs font-semibold text-slate-200 transition hover:border-cyan-500 hover:text-cyan-300"
+                  class="rounded-md border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs font-semibold text-slate-200 transition hover:border-cyan-500 hover:text-cyan-300"
                 >
                   {zoomLabel}
                 </button>
                 {#if zoomMenuOpen}
                   <div
-                    class="absolute right-0 top-full z-30 mt-1 min-w-[120px] rounded-xl border border-slate-700 bg-slate-900 py-1 shadow-2xl shadow-slate-950/60"
+                    class="absolute right-0 top-full z-30 mt-1 min-w-[120px] rounded-md border border-slate-700 bg-slate-900 py-1 shadow-2xl shadow-slate-950/60"
                   >
                     {#each zoomOptions as option (option.value)}
                       <button
@@ -201,7 +201,7 @@
                 disabled={zoomOutDisabled}
                 type="button"
                 aria-label="Zoom out"
-                class="group relative inline-flex h-8 w-8 items-center justify-center rounded-xl border border-slate-700 bg-slate-950 text-slate-200 transition hover:border-cyan-500 hover:text-cyan-300 disabled:cursor-not-allowed disabled:opacity-40"
+                class="group relative inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-700 bg-slate-950 text-slate-200 transition hover:border-cyan-500 hover:text-cyan-300 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 <svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"
                   ><path
@@ -211,7 +211,7 @@
                   /></svg
                 >
                 <span
-                  class="pointer-events-none absolute -bottom-8 left-1/2 z-30 -translate-x-1/2 whitespace-nowrap rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-200 opacity-0 shadow-lg transition group-hover:opacity-100"
+                  class="pointer-events-none absolute -bottom-8 left-1/2 z-30 -translate-x-1/2 whitespace-nowrap rounded border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-200 opacity-0 shadow-lg transition group-hover:opacity-100"
                   >Zoom out</span
                 >
               </button>
@@ -220,7 +220,7 @@
                 disabled={zoomInDisabled}
                 type="button"
                 aria-label="Zoom in"
-                class="group relative inline-flex h-8 w-8 items-center justify-center rounded-xl border border-slate-700 bg-slate-950 text-slate-200 transition hover:border-cyan-500 hover:text-cyan-300 disabled:cursor-not-allowed disabled:opacity-40"
+                class="group relative inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-700 bg-slate-950 text-slate-200 transition hover:border-cyan-500 hover:text-cyan-300 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 <svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"
                   ><path
@@ -230,7 +230,7 @@
                   /></svg
                 >
                 <span
-                  class="pointer-events-none absolute -bottom-8 left-1/2 z-30 -translate-x-1/2 whitespace-nowrap rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-200 opacity-0 shadow-lg transition group-hover:opacity-100"
+                  class="pointer-events-none absolute -bottom-8 left-1/2 z-30 -translate-x-1/2 whitespace-nowrap rounded border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-200 opacity-0 shadow-lg transition group-hover:opacity-100"
                   >Zoom in</span
                 >
               </button>
@@ -274,7 +274,7 @@
         >
           {#if mode === "video" && !videoReady}
             <div
-              class="w-full max-w-xl rounded-3xl border border-slate-800 bg-slate-900/90 p-6 shadow-2xl shadow-slate-950/50"
+              class="w-full max-w-xl rounded-xl border border-slate-800 bg-slate-900/90 p-6 shadow-2xl shadow-slate-950/50"
             >
               <p class="text-lg font-semibold text-slate-100">
                 {videoProgressLabel}
@@ -313,7 +313,7 @@
 
           {#if mode === "zip"}
             <div
-              class="w-full max-w-5xl rounded-3xl border border-slate-800 bg-slate-900/90 p-4 shadow-2xl shadow-slate-950/50 sm:p-5"
+              class="w-full max-w-5xl rounded-xl border border-slate-800 bg-slate-900/90 p-4 shadow-2xl shadow-slate-950/50 sm:p-5"
             >
               <div
                 class="flex flex-wrap items-center gap-2 border-b border-slate-800 pb-3"
@@ -349,7 +349,7 @@
                       {#each zipRootDirectories as directory (directory.path)}
                         <button
                           type="button"
-                          class="flex w-full items-center justify-between rounded-2xl border border-slate-800 bg-slate-950/70 px-4 py-3 text-left transition hover:border-cyan-500 hover:bg-slate-950"
+                          class="flex w-full items-center justify-between rounded-lg border border-slate-800 bg-slate-950/70 px-4 py-3 text-left transition hover:border-cyan-500 hover:bg-slate-950"
                           onclick={() =>
                             onNavigateArchiveDirectory(directory.path)}
                         >
@@ -364,7 +364,7 @@
                         <a
                           href={getArchiveEntryDownloadUrl(file)}
                           download={file.name}
-                          class="flex items-center justify-between gap-3 rounded-2xl border border-slate-800 bg-slate-950/50 px-4 py-3 transition hover:border-cyan-500 hover:bg-slate-950"
+                          class="flex items-center justify-between gap-3 rounded-lg border border-slate-800 bg-slate-950/50 px-4 py-3 transition hover:border-cyan-500 hover:bg-slate-950"
                         >
                           <span class="min-w-0 flex-1 truncate text-slate-100"
                             >{file.name}</span

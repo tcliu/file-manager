@@ -54,7 +54,7 @@
     class="mx-auto flex min-h-[calc(100vh-5rem)] max-w-md items-center justify-center"
   >
     <section
-      class="w-full rounded-3xl border border-slate-800 bg-slate-900/90 p-6 shadow-2xl shadow-slate-950/50"
+      class="w-full rounded-xl border border-slate-800 bg-slate-900/90 p-6 shadow-2xl shadow-slate-950/50"
     >
       <div class="mb-6">
         <h1 class="text-3xl font-semibold tracking-tight text-slate-100">
@@ -72,7 +72,7 @@
             name="username"
             type="text"
             autocomplete="username"
-            class="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-slate-100 outline-none transition focus:border-cyan-500"
+            class="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-3 text-slate-100 outline-none transition focus:border-cyan-500"
             required
           />
         </label>
@@ -84,14 +84,14 @@
               type={passwordVisible ? "text" : "password"}
               name="password"
               autocomplete="current-password"
-              class="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 pr-14 text-slate-100 outline-none transition focus:border-cyan-500"
+              class="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-3 pr-14 text-slate-100 outline-none transition focus:border-cyan-500"
               required
             />
             <button
               onclick={() => (passwordVisible = !passwordVisible)}
               aria-label={passwordVisible ? "Hide password" : "Show password"}
               type="button"
-              class="absolute inset-y-0 right-2 my-2 inline-flex w-10 items-center justify-center rounded-xl text-slate-300 transition hover:bg-slate-800 hover:text-cyan-300"
+              class="absolute inset-y-0 right-2 my-2 inline-flex w-10 items-center justify-center rounded-md text-slate-300 transition hover:bg-slate-800 hover:text-cyan-300"
             >
               {#if passwordVisible}
                 <svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"
@@ -123,7 +123,7 @@
         <button
           disabled={loginPending}
           type="submit"
-          class="w-full rounded-2xl bg-cyan-500 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-400"
+          class="w-full rounded-lg bg-cyan-500 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-400"
         >
           {loginPending ? "Signing in..." : "Login"}
         </button>
