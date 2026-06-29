@@ -93,6 +93,11 @@
   let summaryFolderText = $state("");
   let summaryFileText = $state("");
   let totalSizeText = $state("");
+  let summaryText = $derived(
+    [summaryFolderText, summaryFileText, totalSizeText]
+      .filter((t) => t)
+      .join(" | ")
+  );
   let selectedCountText = $state("0 selected");
   let statusText = $state("");
   let loading = $state(false);
@@ -2447,15 +2452,9 @@
         <div class="fm-pill hidden sm:block">
           {sessionInfoText}
         </div>
-        <div class="fm-pill">
-          {summaryFolderText}
-        </div>
-        <div class="fm-pill">
-          {summaryFileText}
-        </div>
-        {#if totalSizeText}
+        {#if summaryText}
           <div class="fm-pill">
-            {totalSizeText}
+            {summaryText}
           </div>
         {/if}
         {#if authEnabled}
