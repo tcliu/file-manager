@@ -109,6 +109,36 @@
     onBackdropClick,
   }: Props = $props();
 
+  let swipeStartX = 0;
+  let swipeStartY = 0;
+  let swipeStartTime = 0;
+
+  function handleTouchStart(e: TouchEvent) {
+    if (mode === "zip") return;
+    const touch = e.touches[0];
+    if (!touch) return;
+    swipeStartX = touch.clientX;
+    swipeStartY = touch.clientY;
+    swipeStartTime = Date.now();
+  }
+
+  function handleTouchEnd(e: TouchEvent) {
+    if (mode === "zip") return;
+    const touch = e.changedTouches[0];
+    if (!touch) return;
+    const deltaX = touch.clientX - swipeStartX;
+    const deltaY = touch.clientY - swipeStartY;
+    const elapsed = Date.now() - swipeStartTime;
+    if (
+      Math.abs(deltaX) > Math.abs(deltaY) * 1.5 &&
+      Math.abs(deltaX) > 50 &&
+      elapsed < 500
+    ) {
+      if (deltaX > 0) onPrev();
+      else onNext();
+    }
+  }
+
   function handleKeydown(e: KeyboardEvent) {
     if (e.key === "Escape") onClose();
     if (e.key === "ArrowLeft") onPrev();
@@ -258,6 +288,8 @@
       onpointermove={onPointerMove}
       onpointerup={onPointerUp}
       onpointercancel={onPointerUp}
+      ontouchstart={handleTouchStart}
+      ontouchend={handleTouchEnd}
     >
       {#if mode === "image"}
         <img
