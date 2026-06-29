@@ -2285,6 +2285,10 @@
 
 <svelte:window onkeydown={handleKeydown} />
 
+{#snippet tooltip(label: string)}
+  <span class="fm-tooltip">{label}</span>
+{/snippet}
+
 {#if showLoginShell}
   <Login
     bind:username={loginUsername}
@@ -2308,25 +2312,17 @@
         </p>
       </div>
       <div class="flex flex-wrap items-center gap-3">
-        <div
-          class="rounded-full border border-slate-800 bg-slate-900 px-4 py-2 text-sm text-slate-300"
-        >
+        <div class="fm-pill">
           {sessionInfoText}
         </div>
-        <div
-          class="rounded-full border border-slate-800 bg-slate-900 px-4 py-2 text-sm text-slate-300"
-        >
+        <div class="fm-pill">
           {summaryFolderText}
         </div>
-        <div
-          class="rounded-full border border-slate-800 bg-slate-900 px-4 py-2 text-sm text-slate-300"
-        >
+        <div class="fm-pill">
           {summaryFileText}
         </div>
         {#if totalSizeText}
-          <div
-            class="rounded-full border border-slate-800 bg-slate-900 px-4 py-2 text-sm text-slate-300"
-          >
+          <div class="fm-pill">
             {totalSizeText}
           </div>
         {/if}
@@ -2344,10 +2340,7 @@
                 clip-rule="evenodd"
               /></svg
             >
-            <span
-              class="pointer-events-none absolute -bottom-8 left-1/2 z-30 -translate-x-1/2 whitespace-nowrap rounded border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-200 opacity-0 shadow-lg transition group-hover:opacity-100"
-              >Log out</span
-            >
+            {@render tooltip('Log out')}
           </button>
         {/if}
       </div>
@@ -2359,17 +2352,15 @@
       <div class="flex flex-wrap items-center justify-between gap-4">
         <div class="flex flex-wrap items-center gap-2">
           {#each breadcrumbs as item, index}
-            <div class="flex items-center gap-2">
-              <button
-                type="button"
-                class="rounded-full border border-slate-700 bg-slate-950 px-3 py-1 text-xs font-medium text-slate-200 transition hover:border-cyan-500 hover:text-cyan-300"
-                onclick={() => navigateToDirectory(item.path)}
-                >{item.label}</button
-              >
-              {#if index < breadcrumbs.length - 1 && item.label !== "/"}<span
-                  class="text-slate-600">/</span
-                >{/if}
-            </div>
+            <button
+              type="button"
+              class="rounded-full border border-slate-700 bg-slate-950 px-3 py-1 text-xs font-medium text-slate-200 transition hover:border-cyan-500 hover:text-cyan-300"
+              onclick={() => navigateToDirectory(item.path)}
+              >{item.label}</button
+            >
+            {#if index < breadcrumbs.length - 1 && item.label !== "/"}<span
+                class="text-slate-600">/</span
+              >{/if}
           {/each}
         </div>
         <div class="flex flex-wrap items-center gap-3 text-sm text-slate-400">
@@ -2381,7 +2372,7 @@
               type="button"
               aria-label="List view"
               title="List view"
-              class="rounded px-3 py-1.5 font-semibold {viewMode === 'list'
+              class="fm-view-btn {viewMode === 'list'
                 ? 'bg-cyan-500 text-slate-950'
                 : 'text-slate-300 transition hover:text-cyan-300'}"
             >
@@ -2401,7 +2392,7 @@
               type="button"
               aria-label="Grid view"
               title="Grid view"
-              class="rounded px-3 py-1.5 font-semibold {viewMode === 'grid'
+              class="fm-view-btn {viewMode === 'grid'
                 ? 'bg-cyan-500 text-slate-950'
                 : 'text-slate-300 transition hover:text-cyan-300'}"
             >
@@ -2475,10 +2466,7 @@
                   d="M2.75 5A2.25 2.25 0 0 1 5 2.75h3.19c.497 0 .974.198 1.326.549l1.185 1.186c.07.07.166.109.265.109H15A2.25 2.25 0 0 1 17.25 6.75v7.5A2.25 2.25 0 0 1 15 16.5H5a2.25 2.25 0 0 1-2.25-2.25V5Zm9 2.25a.75.75 0 0 0-1.5 0v1.5h-1.5a.75.75 0 0 0 0 1.5h1.5v1.5a.75.75 0 0 0 1.5 0v-1.5h1.5a.75.75 0 0 0 0-1.5h-1.5v-1.5Z"
                 /></svg
               >
-              <span
-                class="pointer-events-none absolute -bottom-8 left-1/2 z-30 -translate-x-1/2 whitespace-nowrap rounded border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-200 opacity-0 shadow-lg transition group-hover:opacity-100"
-                >Create folder</span
-              >
+              {@render tooltip('Create folder')}
             </button>
             <button
               aria-label="Upload files"
@@ -2496,10 +2484,7 @@
                   clip-rule="evenodd"
                 /></svg
               >
-              <span
-                class="pointer-events-none absolute -bottom-8 left-1/2 z-30 -translate-x-1/2 whitespace-nowrap rounded border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-200 opacity-0 shadow-lg transition group-hover:opacity-100"
-                >Upload files</span
-              >
+              {@render tooltip('Upload files')}
             </button>
             <button
               aria-label="Download selected as zip"
@@ -2513,10 +2498,7 @@
                   d="M7 2.75A1.75 1.75 0 0 0 5.25 4.5v11A1.75 1.75 0 0 0 7 17.25h6A1.75 1.75 0 0 0 14.75 15.5v-7a.75.75 0 0 0-.22-.53l-3-3A.75.75 0 0 0 11 4.75H7Z"
                 /></svg
               >
-              <span
-                class="pointer-events-none absolute -bottom-8 left-1/2 z-30 -translate-x-1/2 whitespace-nowrap rounded border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-200 opacity-0 shadow-lg transition group-hover:opacity-100"
-                >Download selected as zip</span
-              >
+              {@render tooltip('Download selected as zip')}
             </button>
             <button
               aria-label="Delete selected files"
@@ -2532,10 +2514,7 @@
                   clip-rule="evenodd"
                 /></svg
               >
-              <span
-                class="pointer-events-none absolute -bottom-8 left-1/2 z-30 -translate-x-1/2 whitespace-nowrap rounded border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-200 opacity-0 shadow-lg transition group-hover:opacity-100"
-                >Delete selected items</span
-              >
+              {@render tooltip('Delete selected items')}
             </button>
           </div>
           {#key fileInputVersion}
@@ -2558,7 +2537,7 @@
               <div class="h-2 overflow-hidden rounded-full bg-slate-800">
                 <div
                   style="width: {uploadProgressWidth}"
-                  class="h-full w-0 rounded-full bg-cyan-500 transition-[width] duration-150"
+                  class="fm-progress-bar duration-150"
                 ></div>
               </div>
             </div>
@@ -2583,17 +2562,10 @@
             >&#128194;</span>
           </div>
         </div>
-        <style>
-          @keyframes float1 { 0%,100% { transform: translateY(0) rotate(0deg); } 50% { transform: translateY(-8px) rotate(3deg); } }
-          @keyframes float2 { 0%,100% { transform: translateY(0) rotate(0deg); } 50% { transform: translateY(-12px) rotate(-4deg); } }
-          @keyframes float3 { 0%,100% { transform: translateY(0) rotate(0deg); } 50% { transform: translateY(-6px) rotate(5deg); } }
-        </style>
+      {:else if !loading && directories.length === 0 && files.length === 0}
+        <div class="mt-6">No items in this directory.</div>
       {:else if statusText}
         <div class="mt-6 text-sm text-slate-400">{statusText}</div>
-      {/if}
-
-      {#if !loading && directories.length === 0 && files.length === 0}
-        <div class="mt-6">No items in this directory.</div>
       {/if}
 
       {#if viewMode === "list" && (directories.length || files.length)}
@@ -2603,7 +2575,7 @@
               class="flex items-center gap-3 rounded-md border border-slate-800 bg-slate-900/50 px-4 py-3 transition hover:border-cyan-500 hover:bg-slate-900"
             >
               <input
-                class="size-4 rounded border-slate-600 bg-slate-950 text-cyan-400"
+                class="fm-check"
                 type="checkbox"
                 checked={ui.selectedFiles.has(directory.path)}
                 onchange={(e) =>
@@ -2627,7 +2599,7 @@
               class="flex flex-wrap items-center gap-3 rounded-md border border-slate-800 bg-slate-900/30 px-4 py-3 hover:bg-slate-900/60"
             >
               <input
-                class="size-4 rounded border-slate-600 bg-slate-950 text-cyan-400"
+                class="fm-check"
                 type="checkbox"
                 checked={ui.selectedFiles.has(file.path)}
                 onchange={(e) =>
@@ -2677,7 +2649,7 @@
                 {#each directories as directory (directory.path)}
                   <div class="relative">
                     <input
-                      class="absolute left-3 top-3 z-10 size-4 rounded border-slate-600 bg-slate-950 text-cyan-400"
+                      class="absolute left-3 top-3 z-10 fm-check"
                       type="checkbox"
                       checked={ui.selectedFiles.has(directory.path)}
                       onchange={(e) =>
@@ -2792,7 +2764,7 @@
                               >
                                 <div
                                   style="width: {gridVideoProgressWidth(file)}"
-                                  class="h-full w-0 rounded-full bg-cyan-500 transition-[width] duration-300"
+                                  class="fm-progress-bar duration-300"
                                 ></div>
                               </div>
                               <p class="text-xs text-slate-400">
@@ -2815,7 +2787,7 @@
                         <button
                           type="button"
                           aria-label="Open media viewer"
-                          class="absolute right-3 top-3 hidden h-10 w-10 items-center justify-center rounded-full border border-slate-700 bg-slate-950/85 text-slate-100 shadow-lg transition hover:border-cyan-500 hover:text-cyan-300 group-hover:flex"
+                          class="fm-media-action"
                           onclick={(e) => {
                             e.preventDefault();
                             e.stopPropagation();
@@ -2833,12 +2805,11 @@
                             /></svg
                           >
                         </button>
-                      {/if}
-                      {#if isZipFile(file.extension)}
+                      {:else if isZipFile(file.extension)}
                         <button
                           type="button"
                           aria-label="Open archive viewer"
-                          class="absolute right-3 top-3 hidden h-10 w-10 items-center justify-center rounded-full border border-slate-700 bg-slate-950/85 text-slate-100 shadow-lg transition hover:border-cyan-500 hover:text-cyan-300 group-hover:flex"
+                          class="fm-media-action"
                           onclick={(e) => {
                             e.preventDefault();
                             e.stopPropagation();
@@ -2858,7 +2829,7 @@
                         </button>
                       {/if}
                       <input
-                        class="absolute left-3 top-3 size-4 rounded border-slate-600 bg-slate-950 text-cyan-400"
+                        class="absolute left-3 top-3 fm-check"
                         type="checkbox"
                         checked={ui.selectedFiles.has(file.path)}
                         onchange={(e) =>
@@ -2912,7 +2883,7 @@
           onclick={() => changePageBy(-1)}
           disabled={!canGoPrev}
           type="button"
-          class="group relative inline-flex h-10 w-10 items-center justify-center rounded-md border border-slate-700 bg-slate-950 font-semibold text-slate-100 transition hover:border-cyan-500 hover:text-cyan-300 disabled:cursor-not-allowed disabled:opacity-40"
+          class="group fm-page-btn"
         >
           <svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"
             ><path
@@ -2921,10 +2892,7 @@
               clip-rule="evenodd"
             /></svg
           >
-          <span
-            class="pointer-events-none absolute -bottom-8 left-1/2 z-30 -translate-x-1/2 whitespace-nowrap rounded border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-200 opacity-0 shadow-lg transition group-hover:opacity-100"
-            >Previous page</span
-          >
+          {@render tooltip('Previous page')}
         </button>
         <span>Page</span>
         <input
@@ -2957,7 +2925,7 @@
           onclick={() => changePageBy(1)}
           disabled={!canGoNext}
           type="button"
-          class="group relative inline-flex h-10 w-10 items-center justify-center rounded-md border border-slate-700 bg-slate-950 font-semibold text-slate-100 transition hover:border-cyan-500 hover:text-cyan-300 disabled:cursor-not-allowed disabled:opacity-40"
+          class="group fm-page-btn"
         >
           <svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"
             ><path
@@ -2966,10 +2934,7 @@
               clip-rule="evenodd"
             /></svg
           >
-          <span
-            class="pointer-events-none absolute -bottom-8 left-1/2 z-30 -translate-x-1/2 whitespace-nowrap rounded border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-200 opacity-0 shadow-lg transition group-hover:opacity-100"
-            >Next page</span
-          >
+          {@render tooltip('Next page')}
         </button>
         <div class="flex items-center gap-2">
           <span>Page size</span>

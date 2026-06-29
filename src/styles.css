@@ -12,10 +12,6 @@ body {
   font-family: system-ui, -apple-system, sans-serif;
 }
 
-[x-cloak] {
-  display: none !important;
-}
-
 button,
 [role="button"],
 a {
@@ -26,24 +22,60 @@ button:disabled {
   cursor: not-allowed;
 }
 
-.icon-action {
-  position: relative;
-  display: inline-flex;
+.fm-tooltip {
+  @apply pointer-events-none absolute -bottom-8 left-1/2 z-30 -translate-x-1/2 whitespace-nowrap rounded border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-200 opacity-0 shadow-lg transition group-hover:opacity-100;
 }
 
-.icon-action-tooltip {
-  position: absolute;
-  left: 50%;
-  bottom: calc(100% + 0.6rem);
-  transform: translateX(-50%) translateY(0.25rem);
-  pointer-events: none;
-  white-space: nowrap;
-  opacity: 0;
-  transition: opacity 150ms ease, transform 150ms ease;
+.fm-pill {
+  @apply rounded-full border border-slate-800 bg-slate-900 px-4 py-2 text-sm text-slate-300;
 }
 
-.icon-action:hover .icon-action-tooltip,
-.icon-action:focus-within .icon-action-tooltip {
-  opacity: 1;
-  transform: translateX(-50%) translateY(0);
+.fm-check {
+  @apply size-4 rounded border-slate-600 bg-slate-950 text-cyan-400;
+}
+
+.fm-media-action {
+  @apply absolute right-3 top-3 hidden h-10 w-10 items-center justify-center rounded-full border border-slate-700 bg-slate-950/85 text-slate-100 shadow-lg transition hover:border-cyan-500 hover:text-cyan-300 group-hover:flex;
+}
+
+.fm-page-btn {
+  @apply relative inline-flex h-10 w-10 items-center justify-center rounded-md border border-slate-700 bg-slate-950 font-semibold text-slate-100 transition hover:border-cyan-500 hover:text-cyan-300 disabled:cursor-not-allowed disabled:opacity-40;
+}
+
+.fm-progress-bar {
+  @apply h-full w-0 rounded-full bg-cyan-500 transition-[width];
+}
+
+.fm-view-btn {
+  @apply rounded px-3 py-1.5 font-semibold;
+}
+
+@keyframes float1 {
+  0%,
+  100% {
+    transform: translateY(0) rotate(0deg);
+  }
+  50% {
+    transform: translateY(-8px) rotate(3deg);
+  }
+}
+
+@keyframes float2 {
+  0%,
+  100% {
+    transform: translateY(0) rotate(0deg);
+  }
+  50% {
+    transform: translateY(-12px) rotate(-4deg);
+  }
+}
+
+@keyframes float3 {
+  0%,
+  100% {
+    transform: translateY(0) rotate(0deg);
+  }
+  50% {
+    transform: translateY(-6px) rotate(5deg);
+  }
 }
