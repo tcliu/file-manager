@@ -101,6 +101,7 @@
   let pageInputMax = $state("1");
   let pageSizeOptions: (number | string)[] = $state([]);
   let pageSizeMenuOpen = $state(false);
+  let pageSizeMenuLeft = $state(false);
   let pageSizeDisplay = $state("20");
   let viewMode = $state<"list" | "grid">("grid");
   let breadcrumbs: { label: string; path: string }[] = $state([
@@ -226,6 +227,13 @@
     lightboxPanScrollLeft: 0,
     lightboxPanScrollTop: 0,
     lightboxPanMoved: false,
+    lightboxPinchActive: false,
+    lightboxPinchStartDist: 0,
+    lightboxPinchStartZoomPercent: 0,
+    lightboxPinchMidX: 0,
+    lightboxPinchMidY: 0,
+    lightboxPinchLastPercent: 0,
+    lightboxPinchFitPercent: 0,
   });
 
   function isWithinConfiguredUploadDir(
@@ -1414,6 +1422,7 @@
     lightboxImageStyle = {};
     lightboxCanPan = false;
     lightboxDragging = false;
+    ui.lightboxPinchActive = false;
     ui.lightboxImageNaturalWidth = 0;
     ui.lightboxImageNaturalHeight = 0;
     setBodyScrollLocked(false);
@@ -2118,6 +2127,7 @@
   function resetLightboxZoom() {
     lightboxZoomValue = LIGHTBOX_FIT_ZOOM_VALUE;
     lightboxZoomMenuOpen = false;
+    ui.lightboxPinchActive = false;
     updateLightboxZoomOptionLabels();
     updateLightboxZoomControls();
     updateLightboxImageStyle();
@@ -2190,6 +2200,7 @@
 
   function startLightboxPan(event: PointerEvent) {
     if (!lightboxCanPan || event.button !== 0) return;
+    if (ui.lightboxPinchActive) return;
     const backdrop = document.getElementById("lightboxBackdrop");
     if (!backdrop) return;
     ui.lightboxPanPointerId = event.pointerId;
@@ -2206,6 +2217,7 @@
   function moveLightboxPan(event: PointerEvent) {
     if (!lightboxDragging || ui.lightboxPanPointerId !== event.pointerId)
       return;
+    if (ui.lightboxPinchActive) return;
     const backdrop = document.getElementById("lightboxBackdrop");
     if (!backdrop) {
       endLightboxPan(event);
@@ -2226,6 +2238,7 @@
 
   function endLightboxPan(event: PointerEvent) {
     if (ui.lightboxPanPointerId !== event.pointerId) return;
+    if (ui.lightboxPinchActive) return;
     const backdrop = document.getElementById("lightboxBackdrop");
     if (backdrop?.hasPointerCapture(event.pointerId)) {
       backdrop.releasePointerCapture(event.pointerId);
@@ -2235,6 +2248,97 @@
     window.setTimeout(() => {
       ui.lightboxPanMoved = false;
     }, 0);
+  }
+
+  function handleLightboxPinchStart(event: TouchEvent) {
+    if (lightboxMode !== "image") return;
+    if (event.touches.length < 2) return;
+    event.preventDefault();
+    if (lightboxDragging) {
+      const backdrop = document.getElementById("lightboxBackdrop");
+      if (backdrop && ui.lightboxPanPointerId !== null && backdrop.hasPointerCapture(ui.lightboxPanPointerId)) {
+        backdrop.releasePointerCapture(ui.lightboxPanPointerId);
+      }
+      ui.lightboxPanPointerId = null;
+      lightboxDragging = false;
+      ui.lightboxPanMoved = false;
+    }
+    const t0 = event.touches[0];
+    const t1 = event.touches[1];
+    ui.lightboxPinchActive = true;
+    ui.lightboxPinchStartDist = Math.hypot(
+      t1.clientX - t0.clientX,
+      t1.clientY - t0.clientY,
+    );
+    ui.lightboxPinchStartZoomPercent = getCurrentLightboxZoomPercent();
+    ui.lightboxPinchMidX = (t0.clientX + t1.clientX) / 2;
+    ui.lightboxPinchMidY = (t0.clientY + t1.clientY) / 2;
+    ui.lightboxPinchLastPercent = ui.lightboxPinchStartZoomPercent;
+    ui.lightboxPinchFitPercent = getFitZoomPercent();
+  }
+
+  function handleLightboxPinchMove(event: TouchEvent) {
+    if (!ui.lightboxPinchActive) return;
+    if (event.touches.length < 2) return;
+    event.preventDefault();
+    const t0 = event.touches[0];
+    const t1 = event.touches[1];
+    const dist = Math.hypot(
+      t1.clientX - t0.clientX,
+      t1.clientY - t0.clientY,
+    );
+    const scale = dist / ui.lightboxPinchStartDist;
+    let targetPercent = ui.lightboxPinchStartZoomPercent * scale;
+    targetPercent = Math.max(ui.lightboxPinchFitPercent, Math.min(300, targetPercent));
+    ui.lightboxPinchLastPercent = targetPercent;
+    const naturalW = ui.lightboxImageNaturalWidth;
+    const naturalH = ui.lightboxImageNaturalHeight;
+    if (!naturalW || !naturalH) return;
+    const zoomScale = targetPercent / 100;
+    lightboxImageStyle = {
+      width: Math.max(1, Math.round(naturalW * zoomScale)) + "px",
+      height: Math.max(1, Math.round(naturalH * zoomScale)) + "px",
+      maxWidth: "none",
+      maxHeight: "none",
+    };
+    const backdrop = document.getElementById("lightboxBackdrop");
+    if (backdrop) {
+      const midOffsetX = ui.lightboxPinchMidX - backdrop.getBoundingClientRect().left;
+      const midOffsetY = ui.lightboxPinchMidY - backdrop.getBoundingClientRect().top;
+      const prevCenterX = backdrop.scrollLeft + midOffsetX;
+      const prevCenterY = backdrop.scrollTop + midOffsetY;
+      const newScrollX = (prevCenterX * scale) - midOffsetX;
+      const newScrollY = (prevCenterY * scale) - midOffsetY;
+      backdrop.scrollLeft = Math.max(0, newScrollX);
+      backdrop.scrollTop = Math.max(0, newScrollY);
+    }
+    lightboxCanPan = true;
+  }
+
+  function handleLightboxPinchEnd(event: TouchEvent) {
+    if (!ui.lightboxPinchActive) return;
+    if (event.touches.length >= 2) return;
+    ui.lightboxPinchActive = false;
+    const finalPercent = ui.lightboxPinchLastPercent;
+    if (finalPercent <= ui.lightboxPinchFitPercent) {
+      setLightboxZoom(LIGHTBOX_FIT_ZOOM_VALUE);
+      return;
+    }
+    const sorted = [...lightboxZoomOptions].sort(
+      (a, b) => a.sortValue - b.sortValue,
+    );
+    let nearest = sorted[0];
+    let minDist = Infinity;
+    for (const opt of sorted) {
+      const d = Math.abs(opt.sortValue - finalPercent);
+      if (d < minDist) {
+        minDist = d;
+        nearest = opt;
+      }
+    }
+    if (nearest) {
+      setLightboxZoom(nearest.value);
+    }
   }
 
   function handleLightboxBackdropClick(event: MouseEvent) {
@@ -2331,7 +2435,7 @@
 
 {#if showAppShell}
   <main class="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
-    <div class="mb-6 flex flex-wrap items-end justify-between gap-4">
+    <div class="mb-3 sm:mb-6 flex flex-wrap items-start justify-between gap-4">
       <div>
         <h1 class="text-3xl font-semibold tracking-tight">File Manager</h1>
         <p class="mt-2 text-sm text-slate-400">
@@ -2340,7 +2444,7 @@
         </p>
       </div>
       <div class="flex flex-wrap items-center gap-3">
-        <div class="fm-pill">
+        <div class="fm-pill hidden sm:block">
           {sessionInfoText}
         </div>
         <div class="fm-pill">
@@ -2377,8 +2481,8 @@
     <section
       class="rounded-2xl border border-slate-800 bg-slate-900/80 p-5 shadow-2xl shadow-slate-950/40"
     >
-      <div class="flex flex-wrap items-center justify-between gap-4">
-        <div class="flex flex-wrap items-center gap-2">
+      <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 sm:gap-y-0.5">
+        <div class="flex flex-wrap items-center gap-2 order-1 sm:order-none">
           {#each breadcrumbs as item, index}
             <button
               type="button"
@@ -2391,7 +2495,7 @@
               >{/if}
           {/each}
         </div>
-        <div class="flex flex-wrap items-center gap-3 text-sm text-slate-400">
+        <div class="flex flex-wrap items-center gap-3 text-sm text-slate-400 order-3 sm:order-none">
           <div
             class="inline-flex rounded-xl border border-slate-700 bg-slate-950 p-1"
           >
@@ -2438,21 +2542,20 @@
           </div>
           <span>{selectedCountText}</span>
         </div>
-      </div>
-
-      <div class="mt-0.5 flex flex-wrap gap-2">
-        {#each availableExtensions as extension}
-          <button
-            type="button"
-            class="fm-ext-btn {selectedExtensionsList.includes(
-              extension,
-            )
-              ? 'fm-ext-btn-on'
-              : 'fm-ext-btn-off'}"
-            onclick={() => toggleExtensionSelection(extension)}
-            >.{extension}</button
-          >
-        {/each}
+        <div class="flex flex-wrap gap-2 basis-full grow-0 shrink-0 order-2 sm:order-none">
+          {#each availableExtensions as extension}
+            <button
+              type="button"
+              class="fm-ext-btn {selectedExtensionsList.includes(
+                extension,
+              )
+                ? 'fm-ext-btn-on'
+                : 'fm-ext-btn-off'}"
+              onclick={() => toggleExtensionSelection(extension)}
+              >.{extension}</button
+            >
+          {/each}
+        </div>
       </div>
 
       {#if inUploadDir}
@@ -2882,16 +2985,18 @@
                         >
                       {/if}
                       <div
-                        class="flex flex-wrap items-center gap-2 text-xs text-slate-400"
+                        class="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-400"
                       >
                         <span
                           class="rounded-full border border-slate-700 px-2 py-1"
                           >.{file.extension || "none"}</span
                         >
                         <span>{formatBytes(file.size)}</span>
-                        {#if formatImageDimensions(file)}<span
-                            >{formatImageDimensions(file)}</span
-                          >{/if}
+                        {#if formatImageDimensions(file)}
+                          <span class="text-slate-600">|</span>
+                          <span>{formatImageDimensions(file)}</span>
+                        {/if}
+                        <span class="text-slate-600">|</span>
                         <span>{formatDateTime(file.modifiedAt)}</span>
                       </div>
                     </div>
@@ -2968,7 +3073,13 @@
           <span>Page size</span>
           <div class="relative" bind:this={pageSizeContainerRef}>
             <button
-              onclick={() => (pageSizeMenuOpen = !pageSizeMenuOpen)}
+              onclick={() => {
+                if (!pageSizeMenuOpen && pageSizeContainerRef) {
+                  const rect = pageSizeContainerRef.getBoundingClientRect();
+                  pageSizeMenuLeft = rect.right + 128 > window.innerWidth;
+                }
+                pageSizeMenuOpen = !pageSizeMenuOpen;
+              }}
               type="button"
               class="inline-flex min-w-24 items-center justify-between gap-2 rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100 outline-none transition hover:border-cyan-500"
             >
@@ -2986,7 +3097,9 @@
             </button>
             {#if pageSizeMenuOpen}
               <div
-                class="absolute right-0 z-20 mt-2 w-32 overflow-hidden rounded-lg border border-slate-700 bg-slate-900/95 p-1 shadow-2xl shadow-slate-950/60 backdrop-blur"
+                class="absolute z-20 mt-2 w-32 overflow-hidden rounded-lg border border-slate-700 bg-slate-900/95 p-1 shadow-2xl shadow-slate-950/60 backdrop-blur {pageSizeMenuLeft
+                  ? 'left-0'
+                  : 'right-0'}"
               >
                 {#each pageSizeOptions as option}
                   <button
@@ -3093,6 +3206,9 @@
     onPointerDown={startLightboxPan}
     onPointerMove={moveLightboxPan}
     onPointerUp={endLightboxPan}
+    onTouchStart={handleLightboxPinchStart}
+    onTouchMove={handleLightboxPinchMove}
+    onTouchEnd={handleLightboxPinchEnd}
     onBackdropClick={handleLightboxBackdropClick}
   />
 {/if}

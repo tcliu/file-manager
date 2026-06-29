@@ -11,8 +11,7 @@ export default defineConfig(async ({ mode }) => {
   };
   if (httpsEnabled) {
     const basicSsl = (await import('@vitejs/plugin-basic-ssl')).default;
-    plugins.unshift(basicSsl());
-    preview.https = {};
+    plugins.unshift(basicSsl() as any);
   }
   return { plugins, preview };
 });

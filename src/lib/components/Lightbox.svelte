@@ -52,6 +52,9 @@
     onPointerMove: (e: PointerEvent) => void;
     onPointerUp: (e: PointerEvent) => void;
     onBackdropClick: (e: MouseEvent) => void;
+    onTouchStart: (e: TouchEvent) => void;
+    onTouchMove: (e: TouchEvent) => void;
+    onTouchEnd: (e: TouchEvent) => void;
   }
 
   let {
@@ -107,36 +110,45 @@
     onPointerMove,
     onPointerUp,
     onBackdropClick,
+    onTouchStart,
+    onTouchMove,
+    onTouchEnd,
   }: Props = $props();
 
-  let swipeStartX = 0;
-  let swipeStartY = 0;
-  let swipeStartTime = 0;
+  let pointerStartX = 0;
+  let pointerStartY = 0;
+  let swipeJustHappened = false;
 
-  function handleTouchStart(e: TouchEvent) {
-    if (mode === "zip") return;
-    const touch = e.touches[0];
-    if (!touch) return;
-    swipeStartX = touch.clientX;
-    swipeStartY = touch.clientY;
-    swipeStartTime = Date.now();
+  function handleBackdropPointerDown(e: PointerEvent) {
+    if (mode !== "zip") {
+      pointerStartX = e.clientX;
+      pointerStartY = e.clientY;
+    }
+    onPointerDown(e);
   }
 
-  function handleTouchEnd(e: TouchEvent) {
-    if (mode === "zip") return;
-    const touch = e.changedTouches[0];
-    if (!touch) return;
-    const deltaX = touch.clientX - swipeStartX;
-    const deltaY = touch.clientY - swipeStartY;
-    const elapsed = Date.now() - swipeStartTime;
-    if (
-      Math.abs(deltaX) > Math.abs(deltaY) * 1.5 &&
-      Math.abs(deltaX) > 50 &&
-      elapsed < 500
-    ) {
-      if (deltaX > 0) onPrev();
-      else onNext();
+  function handleBackdropPointerUp(e: PointerEvent) {
+    const isTouch =
+      e.pointerType === "touch" ||
+      (typeof navigator !== "undefined" && navigator.maxTouchPoints > 0);
+    if (mode !== "zip" && !canPan && isTouch) {
+      const deltaX = e.clientX - pointerStartX;
+      const deltaY = e.clientY - pointerStartY;
+      if (Math.abs(deltaX) > Math.abs(deltaY) * 1.5 && Math.abs(deltaX) > 50) {
+        swipeJustHappened = true;
+        if (deltaX > 0) onPrev();
+        else onNext();
+      }
     }
+    onPointerUp(e);
+  }
+
+  function handleBackdropClick(e: MouseEvent) {
+    if (swipeJustHappened) {
+      swipeJustHappened = false;
+      return;
+    }
+    onBackdropClick(e);
   }
 
   function handleKeydown(e: KeyboardEvent) {
@@ -148,8 +160,8 @@
   let backdropClass = $derived(
     mode === "image"
       ? canPan
-        ? "overflow-auto cursor-grab"
-        : "overflow-auto"
+        ? "overflow-auto cursor-grab touch-none"
+        : "overflow-auto touch-none"
       : mode === "video"
         ? "overflow-hidden"
         : "overflow-auto",
@@ -162,117 +174,155 @@
 <div
   class="fixed inset-0 z-50 bg-slate-950/95 px-1 py-3 sm:px-2 sm:py-4 lg:px-3"
 >
-  <button
-    onclick={onClose}
-    type="button"
-    aria-label="Close media viewer"
-    class="absolute right-2 top-2 z-20 inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-700 bg-slate-900/90 text-slate-100 transition hover:border-cyan-500 hover:text-cyan-300 sm:right-3 sm:top-3"
-  >
-    <svg class="h-6 w-6" viewBox="0 0 20 20" fill="currentColor"
-      ><path
-        fill-rule="evenodd"
-        d="M4.22 4.22a.75.75 0 0 1 1.06 0L10 8.94l4.72-4.72a.75.75 0 1 1 1.06 1.06L11.06 10l4.72 4.72a.75.75 0 1 1-1.06 1.06L10 11.06l-4.72 4.72a.75.75 0 0 1-1.06-1.06L8.94 10 4.22 5.28a.75.75 0 0 1 0-1.06Z"
-        clip-rule="evenodd"
-      /></svg
-    >
-  </button>
-
-  <div class="flex h-full w-full flex-col gap-2">
+    <div class="flex h-full w-full flex-col gap-3 sm:gap-4 lg:gap-3">
     <div class="mx-auto w-full max-w-[min(94vw,1920px)] xl:max-w-[min(calc(100vw-6rem),1920px)]">
-      <div
+       <div
          class="shrink-0 rounded-lg border border-slate-800 bg-slate-900/85 px-4 py-2.5 backdrop-blur"
-      >
-        <div class="flex flex-wrap items-start justify-between gap-3">
-          <div class="min-w-0 flex-1">
-            <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
+       >
+        <div class="flex flex-col items-start sm:flex-row sm:items-start sm:justify-between gap-2 sm:gap-3">
+          <div class="min-w-0 flex-1 flex flex-col sm:flex-row sm:items-center gap-x-3 gap-y-0.5">
+            <div class="flex items-center gap-x-2 min-w-0">
               <p class="min-w-0 truncate font-semibold text-slate-100">
                 {titleValue}
               </p>
-              <div
-                class="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-400"
-              >
-                {#each metaItems as item, i (item.key)}
-                  {#if !item.badge && i > 0 && !metaItems[i - 1].badge}
+              {#each metaItems as item, i (item.key)}
+                {#if item.badge}
+                  <span class="shrink-0 rounded-full border border-slate-700 px-2 py-1 text-xs text-slate-400">{item.text}</span>
+                {/if}
+              {/each}
+            </div>
+            <div
+              class="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-400"
+            >
+              {#each metaItems as item, i (item.key)}
+                {#if !item.badge}
+                  {#if i > 0 && !metaItems[i - 1].badge}
                     <span class="text-slate-600">|</span>
                   {/if}
-                  <span
-                    class={item.badge
-                      ? "rounded-full border border-slate-700 px-2 py-1"
-                      : ""}>{item.text}</span
-                  >
-                {/each}
-              </div>
+                  <span>{item.text}</span>
+                {/if}
+              {/each}
             </div>
           </div>
-          {#if mode === "image"}
-            <div class="flex items-center gap-2">
-              <div class="relative">
+          <div class="flex w-fit items-center gap-1.5">
+            {#if mode !== "zip"}
+              <div class="flex items-center gap-1 sm:hidden">
                 <button
-                  onclick={onToggleZoomMenu}
+                  onclick={onPrev}
+                  disabled={prevDisabled}
                   type="button"
-                  class="rounded-md border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs font-semibold text-slate-200 transition hover:border-cyan-500 hover:text-cyan-300"
+                  aria-label="Previous media"
+                  class="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-700 bg-slate-950 text-slate-200 transition hover:border-cyan-500 hover:text-cyan-300 disabled:cursor-not-allowed disabled:opacity-40"
                 >
-                  {zoomLabel}
-                </button>
-                {#if zoomMenuOpen}
-                  <div
-                    class="absolute right-0 top-full z-30 mt-1 min-w-[120px] rounded-md border border-slate-700 bg-slate-900 py-1 shadow-2xl shadow-slate-950/60"
+                  <svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"
+                    ><path
+                      fill-rule="evenodd"
+                      d="M11.78 4.22a.75.75 0 0 1 0 1.06L7.06 10l4.72 4.72a.75.75 0 1 1-1.06 1.06l-5.25-5.25a.75.75 0 0 1 0-1.06l5.25-5.25a.75.75 0 0 1 1.06 0Z"
+                      clip-rule="evenodd"
+                    /></svg
                   >
-                    {#each zoomOptions as option (option.value)}
-                      <button
-                        type="button"
-                        onclick={() => onZoomChange(option.value)}
-                        class="flex w-full items-center justify-between px-3 py-1.5 text-left text-xs transition {option.value ===
-                        zoomValue
-                          ? 'bg-cyan-500/15 text-cyan-200'
-                          : 'text-slate-300 hover:bg-slate-800 hover:text-cyan-200'}"
-                      >
-                        <span>{option.label}</span>
-                      </button>
-                    {/each}
-                  </div>
-                {/if}
+                </button>
+                <button
+                  onclick={onNext}
+                  disabled={nextDisabled}
+                  type="button"
+                  aria-label="Next media"
+                  class="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-700 bg-slate-950 text-slate-200 transition hover:border-cyan-500 hover:text-cyan-300 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"
+                    ><path
+                      fill-rule="evenodd"
+                      d="M8.22 15.78a.75.75 0 0 1 0-1.06L12.94 10 8.22 5.28a.75.75 0 1 1 1.06-1.06l5.25 5.25a.75.75 0 0 1 0 1.06l-5.25 5.25a.75.75 0 0 1-1.06 0Z"
+                      clip-rule="evenodd"
+                    /></svg
+                  >
+                </button>
               </div>
-              <button
-                onclick={onZoomOut}
-                disabled={zoomOutDisabled}
-                type="button"
-                aria-label="Zoom out"
-                class="group relative inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-700 bg-slate-950 text-slate-200 transition hover:border-cyan-500 hover:text-cyan-300 disabled:cursor-not-allowed disabled:opacity-40"
+            {/if}
+            {#if mode === "image"}
+              <div class="flex items-center gap-2">
+                <div class="relative">
+                  <button
+                    onclick={onToggleZoomMenu}
+                    type="button"
+                    class="rounded-md border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs font-semibold text-slate-200 transition hover:border-cyan-500 hover:text-cyan-300"
+                  >
+                    {zoomLabel}
+                  </button>
+                  {#if zoomMenuOpen}
+                    <div
+                      class="absolute right-0 top-full z-30 mt-1 min-w-[120px] rounded-md border border-slate-700 bg-slate-900 py-1 shadow-2xl shadow-slate-950/60"
+                    >
+                      {#each zoomOptions as option (option.value)}
+                        <button
+                          type="button"
+                          onclick={() => onZoomChange(option.value)}
+                          class="flex w-full items-center justify-between px-3 py-1.5 text-left text-xs transition {option.value ===
+                          zoomValue
+                            ? 'bg-cyan-500/15 text-cyan-200'
+                            : 'text-slate-300 hover:bg-slate-800 hover:text-cyan-200'}"
+                        >
+                          <span>{option.label}</span>
+                        </button>
+                      {/each}
+                    </div>
+                  {/if}
+                </div>
+                <button
+                  onclick={onZoomOut}
+                  disabled={zoomOutDisabled}
+                  type="button"
+                  aria-label="Zoom out"
+                  class="group relative inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-700 bg-slate-950 text-slate-200 transition hover:border-cyan-500 hover:text-cyan-300 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"
+                    ><path
+                      fill-rule="evenodd"
+                      d="M4.25 5.5a.75.75 0 0 0-.75.75v8.5c0 .414.336.75.75.75h8.5a.75.75 0 0 0 .75-.75v-4a.75.75 0 0 1 1.5 0v4A2.25 2.25 0 0 1 12.75 17h-8.5A2.25 2.25 0 0 1 2 14.75v-8.5A2.25 2.25 0 0 1 4.25 4h5a.75.75 0 0 1 0 1.5h-5Zm7-1.25a.75.75 0 0 1 .75-.75h4a.75.75 0 0 1 .75.75v4a.75.75 0 0 1-1.5 0V6.31l-2.22 2.22a.75.75 0 1 1-1.06-1.06l2.22-2.22H12a.75.75 0 0 1-.75-.75Z"
+                      clip-rule="evenodd"
+                    /></svg
+                  >
+                  <span
+                    class="pointer-events-none absolute -bottom-8 left-1/2 z-30 -translate-x-1/2 whitespace-nowrap rounded border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-200 opacity-0 shadow-lg transition group-hover:opacity-100"
+                    >Zoom out</span
+                  >
+                </button>
+                <button
+                  onclick={onZoomIn}
+                  disabled={zoomInDisabled}
+                  type="button"
+                  aria-label="Zoom in"
+                  class="group relative inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-700 bg-slate-950 text-slate-200 transition hover:border-cyan-500 hover:text-cyan-300 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"
+                    ><path
+                      fill-rule="evenodd"
+                      d="M9.25 3.25a.75.75 0 0 0-1.5 0v4.25H3.5a.75.75 0 0 0 0 1.5h4.25v4.25a.75.75 0 0 0 1.5 0v-4.25H13a.75.75 0 0 0 0-1.5H9.25V3.25Z"
+                      clip-rule="evenodd"
+                    /></svg
+                  >
+                  <span
+                    class="pointer-events-none absolute -bottom-8 left-1/2 z-30 -translate-x-1/2 whitespace-nowrap rounded border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-200 opacity-0 shadow-lg transition group-hover:opacity-100"
+                    >Zoom in</span
+                  >
+                </button>
+              </div>
+            {/if}
+            <button
+              onclick={onClose}
+              type="button"
+              aria-label="Close media viewer"
+              class="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-slate-700 bg-slate-950 text-slate-200 transition hover:border-cyan-500 hover:text-cyan-300"
+            >
+              <svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"
+                ><path
+                  fill-rule="evenodd"
+                  d="M4.22 4.22a.75.75 0 0 1 1.06 0L10 8.94l4.72-4.72a.75.75 0 1 1 1.06 1.06L11.06 10l4.72 4.72a.75.75 0 1 1-1.06 1.06L10 11.06l-4.72 4.72a.75.75 0 0 1-1.06-1.06L8.94 10 4.22 5.28a.75.75 0 0 1 0-1.06Z"
+                  clip-rule="evenodd"
+                /></svg
               >
-                <svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"
-                  ><path
-                    fill-rule="evenodd"
-                    d="M4.25 5.5a.75.75 0 0 0-.75.75v8.5c0 .414.336.75.75.75h8.5a.75.75 0 0 0 .75-.75v-4a.75.75 0 0 1 1.5 0v4A2.25 2.25 0 0 1 12.75 17h-8.5A2.25 2.25 0 0 1 2 14.75v-8.5A2.25 2.25 0 0 1 4.25 4h5a.75.75 0 0 1 0 1.5h-5Zm7-1.25a.75.75 0 0 1 .75-.75h4a.75.75 0 0 1 .75.75v4a.75.75 0 0 1-1.5 0V6.31l-2.22 2.22a.75.75 0 1 1-1.06-1.06l2.22-2.22H12a.75.75 0 0 1-.75-.75Z"
-                    clip-rule="evenodd"
-                  /></svg
-                >
-                <span
-                  class="pointer-events-none absolute -bottom-8 left-1/2 z-30 -translate-x-1/2 whitespace-nowrap rounded border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-200 opacity-0 shadow-lg transition group-hover:opacity-100"
-                  >Zoom out</span
-                >
-              </button>
-              <button
-                onclick={onZoomIn}
-                disabled={zoomInDisabled}
-                type="button"
-                aria-label="Zoom in"
-                class="group relative inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-700 bg-slate-950 text-slate-200 transition hover:border-cyan-500 hover:text-cyan-300 disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                <svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"
-                  ><path
-                    fill-rule="evenodd"
-                    d="M9.25 3.25a.75.75 0 0 0-1.5 0v4.25H3.5a.75.75 0 0 0 0 1.5h4.25v4.25a.75.75 0 0 0 1.5 0v-4.25H13a.75.75 0 0 0 0-1.5H9.25V3.25Z"
-                    clip-rule="evenodd"
-                  /></svg
-                >
-                <span
-                  class="pointer-events-none absolute -bottom-8 left-1/2 z-30 -translate-x-1/2 whitespace-nowrap rounded border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-200 opacity-0 shadow-lg transition group-hover:opacity-100"
-                  >Zoom in</span
-                >
-              </button>
-            </div>
-          {/if}
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -283,13 +333,15 @@
       id="lightboxBackdrop"
       class="min-h-0 flex-1 flex items-center justify-center {backdropClass}"
       style={dragging ? "cursor: grabbing;" : ""}
-      onclick={onBackdropClick}
-      onpointerdown={onPointerDown}
+      onclick={handleBackdropClick}
+      onpointerdown={handleBackdropPointerDown}
       onpointermove={onPointerMove}
-      onpointerup={onPointerUp}
+      onpointerup={handleBackdropPointerUp}
       onpointercancel={onPointerUp}
-      ontouchstart={handleTouchStart}
-      ontouchend={handleTouchEnd}
+      ontouchstart={onTouchStart}
+      ontouchmove={onTouchMove}
+      ontouchend={onTouchEnd}
+      ontouchcancel={onTouchEnd}
     >
       {#if mode === "image"}
         <img
