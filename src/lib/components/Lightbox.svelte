@@ -151,6 +151,13 @@
     onBackdropClick(e);
   }
 
+  function handleBackdropWheel(e: WheelEvent) {
+    if (mode !== "image") return;
+    e.preventDefault();
+    if (e.deltaY < 0) onZoomIn();
+    else onZoomOut();
+  }
+
   function handleKeydown(e: KeyboardEvent) {
     if (e.key === "Escape") onClose();
     if (e.key === "ArrowLeft") onPrev();
@@ -342,6 +349,7 @@
       ontouchmove={onTouchMove}
       ontouchend={onTouchEnd}
       ontouchcancel={onTouchEnd}
+      onwheel={handleBackdropWheel}
     >
       {#if mode === "image"}
         <img

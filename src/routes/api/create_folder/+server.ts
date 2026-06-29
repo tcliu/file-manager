@@ -8,6 +8,7 @@ import {
   normalizeUploadDirectoryName,
   resolveListedDirectoryPath,
 } from '$lib/server/file-utils';
+import { logAccess } from '$lib/server/logging';
 
 export const POST: RequestHandler = async ({ request, url }) => {
   const currentDir = normalizeRelativeDirectory(url.searchParams.get('dir') ?? '');
@@ -42,6 +43,11 @@ export const POST: RequestHandler = async ({ request, url }) => {
   }
 
   await mkdir(targetPath, { recursive: false });
+
+  logAccess(request as any, 'dir_create', {
+    directory: currentDir,
+    name: folderName,
+  });
 
   return json({ created: normalizeRelativeDirectory(path.posix.join(currentDir, folderName)) });
 };

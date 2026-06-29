@@ -4,6 +4,7 @@ import path from 'node:path';
 import type { RequestHandler } from './$types';
 import { normalizeRelativeDirectory, resolveListedDirectoryPath, resolveCurrentDirectoryEntryPath, isUploadSubtreePath, getProcessedImagePath, getProcessedVideoPath } from '$lib/server/file-utils';
 import { RAW_IMAGE_EXTENSIONS, VIDEO_EXTENSIONS } from '$lib/server/constants';
+import { logAccess } from '$lib/server/logging';
 
 export const POST: RequestHandler = async ({ request, url }) => {
   const currentDir = normalizeRelativeDirectory(url.searchParams.get('dir') ?? '');
@@ -52,6 +53,11 @@ export const POST: RequestHandler = async ({ request, url }) => {
       await rm(getProcessedVideoPath(entryPath), { force: true }).catch(() => {});
     }
   }
+
+  logAccess(request as any, 'delete', {
+    directory: currentDir,
+    items: requestedItems,
+  });
 
   return json({ deleted: requestedItems });
 };
