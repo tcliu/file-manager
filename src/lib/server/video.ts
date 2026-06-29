@@ -8,6 +8,30 @@ import { getRootDirPath } from './config';
 import { THUMBNAIL_MAX_WIDTH, THUMBNAIL_MAX_HEIGHT, VIDEO_THUMBNAIL_QUALITY } from './constants';
 import { extractFfmpegErrorDetail } from './image';
 
+const MAX_CONCURRENT_VIDEO_CONVERSIONS = 4;
+
+class ConcurrencyLimiter {
+  private running = 0;
+  private queue: (() => void)[] = [];
+
+  async acquire(): Promise<void> {
+    if (this.running < MAX_CONCURRENT_VIDEO_CONVERSIONS) {
+      this.running += 1;
+      return;
+    }
+    await new Promise<void>((resolve) => this.queue.push(resolve));
+  }
+
+  release(): void {
+    if (this.queue.length > 0) {
+      this.queue.shift()!();
+    } else {
+      this.running -= 1;
+    }
+  }
+}
+
+const videoConversionLimiter = new ConcurrencyLimiter();
 const activeVideoConversions = new Map<string, Promise<{ path: string; stat: import('node:fs').Stats; generated: boolean }>>();
 const videoConversionStatuses = new Map<string, {
   state: string;
@@ -97,11 +121,18 @@ async function createProcessedVideo(sourcePath: string, processedPath: string): 
   logEvent('server', 'file_convert_start', { kind: 'video', source_path: sourceRelativePath, output_path: outputRelativePath });
 
   videoConversionStatuses.set(processedPath, {
-    state: 'pending', progress: 0, message: 'Preparing video for browser playback...',
+    state: 'pending', progress: 0, message: 'Queued for conversion...',
     durationSeconds, updatedAt: Date.now(),
   });
 
+  await videoConversionLimiter.acquire();
+
   try {
+    videoConversionStatuses.set(processedPath, {
+      state: 'pending', progress: 0, message: 'Preparing video for browser playback...',
+      durationSeconds, updatedAt: Date.now(),
+    });
+
     await runFfmpegVideoConversion(sourcePath, tempPath, durationSeconds, (progress) => {
       videoConversionStatuses.set(processedPath, {
         state: 'pending', progress,
@@ -121,6 +152,8 @@ async function createProcessedVideo(sourcePath: string, processedPath: string): 
       durationSeconds, updatedAt: Date.now(),
     });
     throw error;
+  } finally {
+    videoConversionLimiter.release();
   }
 
   videoConversionStatuses.set(processedPath, {

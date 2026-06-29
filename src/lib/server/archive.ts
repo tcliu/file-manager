@@ -10,6 +10,7 @@ export interface ArchiveDirectoryEntry {
   path: string;
   name: string;
   parentPath: string;
+  modifiedAt: string;
 }
 
 export interface ArchiveFileEntry {
@@ -17,6 +18,8 @@ export interface ArchiveFileEntry {
   name: string;
   parentPath: string;
   extension: string;
+  size: number;
+  modifiedAt: string;
 }
 
 export interface ArchiveContents {
@@ -31,26 +34,52 @@ function normalizeArchiveEntryPath(relativePath: string): string {
   return normalizedPath;
 }
 
-function createArchiveDirectoryEntry(relativePath: string): ArchiveDirectoryEntry {
+function createArchiveDirectoryEntry(relativePath: string, modifiedAt: string): ArchiveDirectoryEntry {
   return {
     path: relativePath,
     name: path.posix.basename(relativePath),
     parentPath: path.posix.dirname(relativePath) === '.' ? '' : path.posix.dirname(relativePath),
+    modifiedAt,
   };
 }
 
-function createArchiveFileEntry(relativePath: string): ArchiveFileEntry {
+function createArchiveFileEntry(relativePath: string, size: number, modifiedAt: string): ArchiveFileEntry {
   const extension = path.posix.extname(relativePath).slice(1).toLowerCase();
   return {
     path: relativePath,
     name: path.posix.basename(relativePath),
     parentPath: path.posix.dirname(relativePath) === '.' ? '' : path.posix.dirname(relativePath),
     extension,
+    size,
+    modifiedAt,
   };
 }
 
 function compareArchiveEntries(left: { path: string }, right: { path: string }): number {
   return left.path.localeCompare(right.path);
+}
+
+const ZIP_LISTING_LINE_REGEX =
+  /^\S+\s+\S+\s+\S+\s+(\d+)\s+\S+\s+\d+\s+\S+\s+(\d{4})(\d{2})(\d{2})\.(\d{2})(\d{2})(\d{2})\s+(.+)$/;
+
+function parseArchiveListingLine(line: string): {
+  path: string;
+  size: number;
+  modifiedAt: string;
+  isDirectory: boolean;
+} | null {
+  const match = ZIP_LISTING_LINE_REGEX.exec(line);
+  if (!match) return null;
+
+  const [, sizeString, year, month, day, hours, minutes, seconds, rawPath] = match;
+  const size = Number(sizeString);
+  const modifiedAt = `${year}-${month}-${day}T${hours}:${minutes}:${seconds}`;
+  const isDirectory = line.trim().startsWith('d') || rawPath.endsWith('/');
+  const path = rawPath.endsWith('/') ? rawPath.slice(0, -1) : rawPath;
+  const normalizedPath = normalizeArchiveEntryPath(path);
+  if (!normalizedPath) return null;
+
+  return { path: normalizedPath, size, modifiedAt, isDirectory };
 }
 
 export async function listZipArchiveContents(filePath: string): Promise<ArchiveContents> {
@@ -59,29 +88,26 @@ export async function listZipArchiveContents(filePath: string): Promise<ArchiveC
   const files: ArchiveFileEntry[] = [];
 
   for (const rawLine of output.split(/\r?\n/)) {
-    const entryLine = rawLine.trim();
-    if (!entryLine) continue;
+    const entry = parseArchiveListingLine(rawLine);
+    if (!entry) continue;
 
-    const isDirectory = entryLine.endsWith('/');
-    const normalizedPath = normalizeArchiveEntryPath(isDirectory ? entryLine.slice(0, -1) : entryLine);
-    if (!normalizedPath) continue;
-
+    const { path: normalizedPath, size, modifiedAt, isDirectory } = entry;
     const parts = normalizedPath.split('/');
     for (let index = 1; index < parts.length; index += 1) {
       const directoryPath = parts.slice(0, index).join('/');
       if (!directories.has(directoryPath)) {
-        directories.set(directoryPath, createArchiveDirectoryEntry(directoryPath));
+        directories.set(directoryPath, createArchiveDirectoryEntry(directoryPath, modifiedAt));
       }
     }
 
     if (isDirectory) {
       if (!directories.has(normalizedPath)) {
-        directories.set(normalizedPath, createArchiveDirectoryEntry(normalizedPath));
+        directories.set(normalizedPath, createArchiveDirectoryEntry(normalizedPath, modifiedAt));
       }
       continue;
     }
 
-    files.push(createArchiveFileEntry(normalizedPath));
+    files.push(createArchiveFileEntry(normalizedPath, size, modifiedAt));
   }
 
   return {
@@ -92,8 +118,8 @@ export async function listZipArchiveContents(filePath: string): Promise<ArchiveC
 
 function readZipDirectoryListing(filePath: string): Promise<string> {
   const commands: [string, string[]][] = [
-    ['unzip', ['-Z1', filePath]],
-    ['zipinfo', ['-1', filePath]],
+    ['unzip', ['-Z', '-l', '-T', filePath]],
+    ['zipinfo', ['-l', '-T', filePath]],
   ];
   let lastError: Error | null = null;
 

@@ -171,6 +171,7 @@
     name: string;
     path: string;
     parentPath: string;
+    modifiedAt: string;
   }[] = $state([]);
   let lightboxZipFiles: any[] = $state([]);
   let lightboxZipCurrentDirectory = $state("");
@@ -3054,6 +3055,8 @@
     imageStyle={lightboxImageStyle}
     zoomOptions={lightboxZoomOptions}
     zoomLabel={lightboxZoomLabel}
+    formatArchiveBytes={formatBytes}
+    formatArchiveDate={formatDateTime}
     onVideoLoadedMetadata={(event) =>
       handleSharedVideoLoadedMetadata(
         lightboxPathValue,

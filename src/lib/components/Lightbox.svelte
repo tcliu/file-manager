@@ -10,7 +10,7 @@
     videoProgressValue: string;
     videoProgressWidth: string;
     videoErrorText: string;
-    zipRootDirectories: { name: string; path: string; parentPath: string }[];
+    zipRootDirectories: { name: string; path: string; parentPath: string; modifiedAt: string }[];
     zipFiles: any[];
     zipCurrentDirectory: string;
     zipBreadcrumbs: { label: string; path: string }[];
@@ -30,6 +30,8 @@
     imageStyle: Record<string, string>;
     zoomOptions: { value: string; label: string; sortValue: number }[];
     zoomLabel: string;
+    formatArchiveBytes: (bytes: number) => string;
+    formatArchiveDate: (value: string) => string;
     onVideoLoadedMetadata: (event: Event) => void;
     onVideoTimeUpdate: (event: Event) => void;
     onVideoPlay: (event: Event) => void;
@@ -83,6 +85,8 @@
     imageStyle,
     zoomOptions,
     zoomLabel,
+    formatArchiveBytes,
+    formatArchiveDate,
     onVideoLoadedMetadata,
     onVideoTimeUpdate,
     onVideoPlay,
@@ -313,7 +317,7 @@
 
           {#if mode === "zip"}
             <div
-              class="w-full max-w-5xl rounded-xl border border-slate-800 bg-slate-900/90 p-4 shadow-2xl shadow-slate-950/50 sm:p-5"
+              class="flex max-h-full w-full max-w-5xl flex-col rounded-xl border border-slate-800 bg-slate-900/90 p-4 shadow-2xl shadow-slate-950/50 sm:p-5"
             >
               <div
                 class="flex flex-wrap items-center gap-2 border-b border-slate-800 pb-3"
@@ -339,7 +343,7 @@
               {:else if zipErrorText}
                 <p class="py-8 text-sm text-rose-300">{zipErrorText}</p>
               {:else}
-                <div class="pt-4">
+                <div class="flex-1 overflow-y-auto pt-4">
                   {#if !zipRootDirectories.length && !zipFiles.length}
                     <p class="py-8 text-sm text-slate-400">
                       This archive is empty.
@@ -349,7 +353,7 @@
                       {#each zipRootDirectories as directory (directory.path)}
                         <button
                           type="button"
-                          class="flex w-full items-center justify-between rounded-lg border border-slate-800 bg-slate-950/70 px-4 py-3 text-left transition hover:border-cyan-500 hover:bg-slate-950"
+                          class="flex w-full items-center justify-between gap-3 rounded-lg border border-slate-800 bg-slate-950/70 px-4 py-3 text-left transition hover:border-cyan-500 hover:bg-slate-950"
                           onclick={() =>
                             onNavigateArchiveDirectory(directory.path)}
                         >
@@ -357,7 +361,13 @@
                             class="min-w-0 truncate font-semibold text-cyan-300"
                             >{directory.name}/</span
                           >
-                          <span class="text-xs text-slate-500">Folder</span>
+                          <div
+                            class="flex shrink-0 items-center gap-x-3 text-xs text-slate-500"
+                          >
+                            <span>{formatArchiveDate(directory.modifiedAt)}</span
+                            >
+                            <span>Folder</span>
+                          </div>
                         </button>
                       {/each}
                       {#each zipFiles as file (file.path)}
@@ -366,13 +376,21 @@
                           download={file.name}
                           class="flex items-center justify-between gap-3 rounded-lg border border-slate-800 bg-slate-950/50 px-4 py-3 transition hover:border-cyan-500 hover:bg-slate-950"
                         >
-                          <span class="min-w-0 flex-1 truncate text-slate-100"
-                            >{file.name}</span
+                          <div class="flex min-w-0 flex-1 items-center gap-2">
+                            <span class="truncate text-slate-100"
+                              >{file.name}</span
+                            >
+                            <span
+                              class="shrink-0 rounded-full border border-slate-700 px-2 py-0.5 text-xs text-slate-400"
+                              >.{file.extension || "none"}</span
+                            >
+                          </div>
+                          <div
+                            class="flex shrink-0 items-center gap-x-3 text-xs text-slate-500"
                           >
-                          <span
-                            class="rounded-full border border-slate-700 px-2 py-1 text-xs text-slate-400"
-                            >.{file.extension || "none"}</span
-                          >
+                            <span>{formatArchiveBytes(file.size)}</span>
+                            <span>{formatArchiveDate(file.modifiedAt)}</span>
+                          </div>
                         </a>
                       {/each}
                     </div>
