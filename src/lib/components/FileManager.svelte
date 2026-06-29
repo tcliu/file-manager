@@ -2444,11 +2444,11 @@
         {#each availableExtensions as extension}
           <button
             type="button"
-            class="rounded-full border px-3 py-1 text-xs font-semibold {selectedExtensionsList.includes(
+            class="fm-ext-btn {selectedExtensionsList.includes(
               extension,
             )
-              ? 'border-cyan-400 bg-cyan-400/10 text-cyan-300'
-              : 'border-slate-700 bg-slate-950 text-slate-300 transition hover:border-cyan-500 hover:text-cyan-300'}"
+              ? 'fm-ext-btn-on'
+              : 'fm-ext-btn-off'}"
             onclick={() => toggleExtensionSelection(extension)}
             >.{extension}</button
           >
