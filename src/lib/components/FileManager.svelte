@@ -17,6 +17,13 @@
     progress: number;
     message: string;
     error: string;
+    requiresConversion?: boolean;
+  }
+
+  interface SharedVideoPlaybackEntry {
+    currentTime: number;
+    shouldResume: boolean;
+    preferredSurface: "grid" | "lightbox";
   }
 
   interface UploadCandidate {
@@ -118,8 +125,10 @@
   let uploadProgressLabel = $state("Uploading...");
   let uploadProgressValue = $state("0%");
   let uploadProgressWidth = $state("0%");
-  let gridVideoPreparation = $state<Record<string, VideoPreparationEntry>>({});
-  let activeGridVideoPolls = new Set<string>();
+  let videoPreparationByPath = $state<Record<string, VideoPreparationEntry>>({});
+  let activeVideoPreparationPolls = new Set<string>();
+  const sharedVideoPlaybackByPath = new Map<string, SharedVideoPlaybackEntry>();
+  let sharedVideoSyncDepth = 0;
 
   let confirmDialogOpen = $state(false);
   let confirmDialogTitleText = $state("Delete selected files?");
@@ -816,18 +825,36 @@
     return "/download?" + query.toString();
   }
 
-  function getGridVideoPreparationEntry(file: any): VideoPreparationEntry {
-    if (!isVideoFile(file?.extension)) {
+  function videoRequiresPreparation(extension: string): boolean {
+    return isVideoFile(extension) && String(extension || "").toLowerCase() !== "webm";
+  }
+
+  function getVideoPreparationEntry(
+    filePath: string,
+    extension: string,
+  ): VideoPreparationEntry {
+    const existing = videoPreparationByPath[filePath];
+    if (existing) {
+      return existing;
+    }
+
+    if (!isVideoFile(extension)) {
       return { ready: false, progress: 0, message: "", error: "" };
     }
-    return (
-      gridVideoPreparation[file.path] ?? {
-        ready: false,
-        progress: 0,
-        message: "Preparing video for browser playback...",
-        error: "",
-      }
-    );
+
+    return {
+      ready: !videoRequiresPreparation(extension),
+      requiresConversion: videoRequiresPreparation(extension),
+      progress: videoRequiresPreparation(extension) ? 0 : 100,
+      message: videoRequiresPreparation(extension)
+        ? "Preparing video for browser playback..."
+        : "Video ready",
+      error: "",
+    };
+  }
+
+  function getGridVideoPreparationEntry(file: any): VideoPreparationEntry {
+    return getVideoPreparationEntry(file.path, file.extension);
   }
 
   function gridVideoReady(file: any): boolean {
@@ -850,50 +877,103 @@
     return getGridVideoPreparationEntry(file).error;
   }
 
-  function updateGridVideoPreparation(
+  function syncLightboxVideoPreparation(
     filePath: string,
     entry: VideoPreparationEntry,
   ) {
-    gridVideoPreparation = {
-      ...gridVideoPreparation,
-      [filePath]: entry,
-    };
-  }
-
-  async function ensureGridVideoPreparation(file: any) {
-    if (!isVideoFile(file?.extension) || activeGridVideoPolls.has(file.path)) {
+    if (
+      !lightboxOpen ||
+      lightboxMode !== "video" ||
+      lightboxPathValue !== filePath
+    ) {
       return;
     }
 
-    activeGridVideoPolls.add(file.path);
-    const query = new URLSearchParams({ path: file.path });
+    const progress = Math.max(0, Math.min(100, Number(entry.progress) || 0));
+    lightboxVideoProgressLabel =
+      entry.message || "Preparing video for browser playback...";
+    lightboxVideoProgressValue = progress + "%";
+    lightboxVideoProgressWidth = progress + "%";
+    lightboxVideoErrorText = entry.error || "";
+
+    if (entry.ready) {
+      lightboxVideoUrl = getMediaUrl(filePath);
+      lightboxVideoReady = true;
+      window.requestAnimationFrame(() => {
+        if (lightboxPathValue !== filePath || !lightboxOpen) {
+          return;
+        }
+
+        syncSharedVideoSurface(filePath, "lightbox");
+      });
+      return;
+    }
+
+    lightboxVideoUrl = "";
+    lightboxVideoReady = false;
+  }
+
+  function updateVideoPreparation(
+    filePath: string,
+    extension: string,
+    entry: VideoPreparationEntry,
+  ) {
+    videoPreparationByPath = {
+      ...videoPreparationByPath,
+      [filePath]: entry,
+    };
+
+    if (lightboxPathValue === filePath) {
+      syncLightboxVideoPreparation(
+        filePath,
+        getVideoPreparationEntry(filePath, extension),
+      );
+    }
+  }
+
+  async function fetchVideoPreparation(filePath: string) {
+    const query = new URLSearchParams({ path: filePath });
+    const response = await fetch("/api/video-preparation?" + query.toString(), {
+      headers: getAuthHeaders(),
+    });
+
+    if (response.status === 401) {
+      forceLogout("Session expired: please log in again");
+      throw new Error("Session expired: please log in again");
+    }
+
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      throw new Error(data.error ?? "Failed to prepare video");
+    }
+
+    return data;
+  }
+
+  async function ensureVideoPreparation(file: any) {
+    if (!isVideoFile(file?.extension)) {
+      return;
+    }
+
+    const currentEntry = getVideoPreparationEntry(file.path, file.extension);
+    if (!currentEntry.requiresConversion || currentEntry.ready) {
+      return;
+    }
+
+    if (activeVideoPreparationPolls.has(file.path)) {
+      return;
+    }
+
+    activeVideoPreparationPolls.add(file.path);
 
     try {
       while (true) {
-        const response = await fetch(
-          "/api/video-preparation?" + query.toString(),
-          { headers: getAuthHeaders() },
-        );
+        const data = await fetchVideoPreparation(file.path);
 
-        if (response.status === 401) {
-          forceLogout("Session expired: please log in again");
-          return;
-        }
-
-        const data = await response.json().catch(() => ({}));
-
-        if (!response.ok) {
-          updateGridVideoPreparation(file.path, {
-            ready: false,
-            progress: 0,
-            message: "Preparing video for browser playback...",
-            error: data.error ?? "Failed to prepare video",
-          });
-          return;
-        }
-
-        updateGridVideoPreparation(file.path, {
+        updateVideoPreparation(file.path, file.extension, {
           ready: !!data.ready,
+          requiresConversion: data.requiresConversion !== false,
           progress: Math.max(0, Math.min(100, Number(data.progress) || 0)),
           message:
             data.message ||
@@ -909,15 +989,17 @@
 
         await new Promise((resolve) => setTimeout(resolve, 400));
       }
-    } catch {
-      updateGridVideoPreparation(file.path, {
+    } catch (error) {
+      updateVideoPreparation(file.path, file.extension, {
         ready: false,
         progress: 0,
         message: "Preparing video for browser playback...",
-        error: "Failed to prepare video",
+        requiresConversion: true,
+        error:
+          error instanceof Error ? error.message : "Failed to prepare video",
       });
     } finally {
-      activeGridVideoPolls.delete(file.path);
+      activeVideoPreparationPolls.delete(file.path);
     }
   }
 
@@ -1201,11 +1283,29 @@
     lightboxOpen = true;
     setBodyScrollLocked(true);
     resetLightboxZoom();
+    if (isVideoFile(currentFile.extension)) {
+      handoffSharedVideoToSurface(filePath, "lightbox", true);
+    }
     syncLightboxState();
     syncLocationState();
   }
 
   function closeLightbox() {
+    const closingLightboxPath = lightboxPathValue;
+    const lightboxVideo = getSharedVideoElementsByPath(closingLightboxPath).find(
+      (element) => getSharedVideoElementSurface(element) === "lightbox",
+    );
+    const shouldRestoreGridVideo =
+      lightboxMode === "video" && Boolean(closingLightboxPath && lightboxVideo);
+
+    if (shouldRestoreGridVideo && lightboxVideo) {
+      storeSharedVideoPlayback(closingLightboxPath, lightboxVideo, {
+        preferredSurface: "grid",
+        shouldResume: isSharedVideoPlaybackActive(lightboxVideo),
+      });
+      pauseSharedVideoElement(lightboxVideo);
+    }
+
     ui.lightboxIndex = -1;
     ui.lightboxPath = "";
     ui.lightboxLoadToken += 1;
@@ -1215,6 +1315,10 @@
     lightboxImageUrl = "";
     lightboxVideoUrl = "";
     lightboxVideoReady = false;
+    lightboxVideoProgressLabel = "Preparing video for browser playback...";
+    lightboxVideoProgressValue = "0%";
+    lightboxVideoProgressWidth = "0%";
+    lightboxVideoErrorText = "";
     lightboxImageAlt = "";
     lightboxTitleValue = "";
     lightboxMetaItems = [];
@@ -1226,9 +1330,27 @@
     ui.lightboxImageNaturalHeight = 0;
     setBodyScrollLocked(false);
     syncLocationState();
+
+    if (shouldRestoreGridVideo && closingLightboxPath) {
+      window.requestAnimationFrame(() => {
+        syncSharedVideoSurface(closingLightboxPath, "grid");
+      });
+    }
   }
 
   function syncLightboxState() {
+    if (lightboxMode === "video" && lightboxPathValue) {
+      const currentLightboxVideo = getSharedVideoElementsByPath(
+        lightboxPathValue,
+      ).find((element) => getSharedVideoElementSurface(element) === "lightbox");
+
+      storeSharedVideoPlayback(lightboxPathValue, currentLightboxVideo ?? null, {
+        preferredSurface: "grid",
+        shouldResume: false,
+      });
+      pauseSharedVideoElement(currentLightboxVideo ?? null);
+    }
+
     const currentFile = ui.visibleMediaFiles[ui.lightboxIndex];
     if (!currentFile) {
       closeLightbox();
@@ -1242,6 +1364,10 @@
     lightboxImageUrl = isImage ? getMediaUrl(currentFile.path) : "";
     lightboxVideoUrl = "";
     lightboxVideoReady = false;
+    lightboxVideoProgressLabel = "Preparing video for browser playback...";
+    lightboxVideoProgressValue = "0%";
+    lightboxVideoProgressWidth = "0%";
+    lightboxVideoErrorText = "";
     lightboxImageAlt = isImage ? currentFile.name : "";
     lightboxTitleValue = currentFile.name;
     lightboxMetaItems = [
@@ -1273,50 +1399,348 @@
     ui.lightboxImageNaturalWidth = 0;
     ui.lightboxImageNaturalHeight = 0;
     resetLightboxZoom();
-    if (isVideo) prepareLightboxVideo(currentFile);
+    if (isVideo) {
+      handoffSharedVideoToSurface(currentFile.path, "lightbox", true);
+      syncLightboxVideoPreparation(
+        currentFile.path,
+        getVideoPreparationEntry(currentFile.path, currentFile.extension),
+      );
+      ensureVideoPreparation(currentFile);
+    }
   }
 
-  async function prepareLightboxVideo(file: any) {
-    const query = new URLSearchParams({ path: file.path });
+  function getSharedVideoPlaybackEntry(filePath: string): SharedVideoPlaybackEntry {
+    const normalizedPath = String(filePath || "");
+
+    if (!normalizedPath) {
+      return {
+        currentTime: 0,
+        shouldResume: false,
+        preferredSurface: "grid",
+      };
+    }
+
+    const existing = sharedVideoPlaybackByPath.get(normalizedPath);
+    if (existing) {
+      return existing;
+    }
+
+    const entry: SharedVideoPlaybackEntry = {
+      currentTime: 0,
+      shouldResume: false,
+      preferredSurface: "grid",
+    };
+    sharedVideoPlaybackByPath.set(normalizedPath, entry);
+    return entry;
+  }
+
+  function updateSharedVideoPlayback(
+    filePath: string,
+    nextValues: Partial<SharedVideoPlaybackEntry>,
+  ): SharedVideoPlaybackEntry {
+    if (!filePath) {
+      return getSharedVideoPlaybackEntry(filePath);
+    }
+
+    const entry = getSharedVideoPlaybackEntry(filePath);
+    Object.assign(entry, nextValues);
+    return entry;
+  }
+
+  function storeSharedVideoPlayback(
+    filePath: string,
+    element: HTMLVideoElement | null,
+    nextValues: Partial<SharedVideoPlaybackEntry> = {},
+  ): SharedVideoPlaybackEntry {
+    if (!filePath) {
+      return getSharedVideoPlaybackEntry(filePath);
+    }
+
+    const currentTime =
+      element instanceof HTMLVideoElement && Number.isFinite(element.currentTime)
+        ? Math.max(0, element.currentTime)
+        : undefined;
+
+    return updateSharedVideoPlayback(filePath, {
+      ...(currentTime === undefined ? {} : { currentTime }),
+      ...nextValues,
+    });
+  }
+
+  function runWithSharedVideoSyncSuppressed<T>(callback: () => T): T {
+    sharedVideoSyncDepth += 1;
+
     try {
-      const response = await fetch(
-        "/api/video-preparation?" + query.toString(),
-        { headers: getAuthHeaders() },
-      );
-      const data = await response.json();
-      if (data.ready) {
-        lightboxVideoUrl = getMediaUrl(file.path);
-        lightboxVideoReady = true;
-      } else {
-        lightboxVideoProgressLabel = data.message || "Preparing video...";
-        lightboxVideoProgressValue = (data.progress || 0) + "%";
-        lightboxVideoProgressWidth = (data.progress || 0) + "%";
-        pollVideoPreparation(file);
-      }
-    } catch {}
+      return callback();
+    } finally {
+      sharedVideoSyncDepth = Math.max(0, sharedVideoSyncDepth - 1);
+    }
   }
 
-  async function pollVideoPreparation(file: any) {
-    const query = new URLSearchParams({ path: file.path });
-    while (true) {
-      await new Promise((r) => setTimeout(r, 400));
-      const response = await fetch(
-        "/api/video-preparation?" + query.toString(),
-        { headers: getAuthHeaders() },
-      );
-      const data = await response.json();
-      lightboxVideoProgressLabel = data.message || "Preparing video...";
-      lightboxVideoProgressValue = (data.progress || 0) + "%";
-      lightboxVideoProgressWidth = (data.progress || 0) + "%";
-      lightboxVideoErrorText = data.error || "";
-      if (data.ready || data.error) {
-        if (data.ready) {
-          lightboxVideoUrl = getMediaUrl(file.path);
-          lightboxVideoReady = true;
+  function shouldIgnoreSharedVideoEvent(
+    filePath: string,
+    element: EventTarget | null,
+  ): boolean {
+    return (
+      sharedVideoSyncDepth > 0 ||
+      !filePath ||
+      !(element instanceof HTMLVideoElement)
+    );
+  }
+
+  function getSharedVideoElements(): HTMLVideoElement[] {
+    if (typeof document === "undefined") {
+      return [];
+    }
+
+    return [...document.querySelectorAll("video[data-shared-video]")].filter(
+      (element): element is HTMLVideoElement =>
+        element instanceof HTMLVideoElement && element.isConnected,
+    );
+  }
+
+  function getSharedVideoElementPath(element: HTMLVideoElement): string {
+    return String(element.dataset.videoPath || "");
+  }
+
+  function getSharedVideoElementSurface(
+    element: HTMLVideoElement,
+  ): "grid" | "lightbox" | "" {
+    const surface = String(element.dataset.sharedVideo || "");
+    return surface === "grid" || surface === "lightbox" ? surface : "";
+  }
+
+  function isSharedVideoPlaybackActive(element: HTMLVideoElement | null): boolean {
+    return !!element && !element.paused && !element.ended;
+  }
+
+  function getSharedVideoElementsByPath(filePath: string): HTMLVideoElement[] {
+    return getSharedVideoElements().filter(
+      (element) => getSharedVideoElementPath(element) === filePath,
+    );
+  }
+
+  function getPreferredSharedVideoElement(
+    filePath: string,
+  ): HTMLVideoElement | null {
+    const matchingElements = getSharedVideoElementsByPath(filePath);
+    const activeElement = matchingElements.find((element) =>
+      isSharedVideoPlaybackActive(element),
+    );
+
+    if (activeElement) {
+      return activeElement;
+    }
+
+    return (
+      matchingElements.find(
+        (element) => getSharedVideoElementSurface(element) === "lightbox",
+      ) ?? matchingElements[0] ?? null
+    );
+  }
+
+  function clampSharedVideoTime(
+    element: HTMLVideoElement,
+    currentTime: number,
+  ): number {
+    if (!Number.isFinite(currentTime)) {
+      return 0;
+    }
+
+    if (!Number.isFinite(element.duration)) {
+      return Math.max(0, currentTime);
+    }
+
+    return Math.min(Math.max(0, currentTime), Math.max(0, element.duration - 0.25));
+  }
+
+  function pauseSharedVideoElement(element: HTMLVideoElement | null) {
+    if (!element || element.paused) {
+      return;
+    }
+
+    runWithSharedVideoSyncSuppressed(() => {
+      element.pause();
+    });
+  }
+
+  function pauseOtherSharedVideos(
+    activeFilePath: string,
+    activeElement: HTMLVideoElement | null = null,
+  ) {
+    for (const element of getSharedVideoElements()) {
+      if (element === activeElement) {
+        continue;
+      }
+
+      const filePath = getSharedVideoElementPath(element);
+      if (!filePath) {
+        continue;
+      }
+
+      storeSharedVideoPlayback(filePath, element, filePath === activeFilePath
+        ? {}
+        : { shouldResume: false });
+      pauseSharedVideoElement(element);
+    }
+  }
+
+  function applySharedVideoPlaybackToElement(
+    filePath: string,
+    surface: "grid" | "lightbox",
+    element: HTMLVideoElement,
+  ) {
+    if (!filePath) {
+      return;
+    }
+
+    const entry = getSharedVideoPlaybackEntry(filePath);
+
+    runWithSharedVideoSyncSuppressed(() => {
+      if (element.readyState >= 1 && Number.isFinite(entry.currentTime)) {
+        const targetTime = clampSharedVideoTime(element, entry.currentTime);
+
+        if (Math.abs(element.currentTime - targetTime) > 0.2) {
+          element.currentTime = targetTime;
+        }
+      }
+
+      if (entry.shouldResume && entry.preferredSurface === surface) {
+        pauseOtherSharedVideos(filePath, element);
+        const playResult = element.play();
+        if (playResult && typeof playResult.catch === "function") {
+          playResult.catch(() => {});
         }
         return;
       }
+
+      if (!element.paused) {
+        element.pause();
+      }
+    });
+  }
+
+  function handoffSharedVideoToSurface(
+    filePath: string,
+    surface: "grid" | "lightbox",
+    defaultShouldResume = false,
+  ) {
+    if (!filePath) {
+      return;
     }
+
+    const entry = getSharedVideoPlaybackEntry(filePath);
+    const sourceElement = getPreferredSharedVideoElement(filePath);
+    const shouldResume = sourceElement
+      ? isSharedVideoPlaybackActive(sourceElement) || defaultShouldResume
+      : entry.shouldResume || defaultShouldResume;
+
+    storeSharedVideoPlayback(filePath, sourceElement, {
+      preferredSurface: surface,
+      shouldResume,
+    });
+    pauseOtherSharedVideos(filePath, null);
+  }
+
+  function syncSharedVideoSurface(
+    filePath: string,
+    surface: "grid" | "lightbox",
+  ) {
+    if (!filePath) {
+      return;
+    }
+
+    const targetElement = getSharedVideoElementsByPath(filePath).find(
+      (element) => getSharedVideoElementSurface(element) === surface,
+    );
+
+    if (!targetElement) {
+      return;
+    }
+
+    applySharedVideoPlaybackToElement(filePath, surface, targetElement);
+  }
+
+  function handleSharedVideoPlay(
+    filePath: string,
+    surface: "grid" | "lightbox",
+    element: EventTarget | null,
+  ) {
+    if (shouldIgnoreSharedVideoEvent(filePath, element)) {
+      return;
+    }
+
+    storeSharedVideoPlayback(filePath, element, {
+      shouldResume: true,
+      preferredSurface: surface,
+    });
+    pauseOtherSharedVideos(filePath, element);
+  }
+
+  function handleSharedVideoPause(
+    filePath: string,
+    surface: "grid" | "lightbox",
+    element: EventTarget | null,
+  ) {
+    if (shouldIgnoreSharedVideoEvent(filePath, element)) {
+      return;
+    }
+
+    storeSharedVideoPlayback(filePath, element, {
+      shouldResume: false,
+      preferredSurface: surface,
+    });
+  }
+
+  function handleSharedVideoTimeUpdate(
+    filePath: string,
+    element: EventTarget | null,
+  ) {
+    if (shouldIgnoreSharedVideoEvent(filePath, element)) {
+      return;
+    }
+
+    storeSharedVideoPlayback(filePath, element, {
+      shouldResume: isSharedVideoPlaybackActive(element),
+    });
+  }
+
+  function handleSharedVideoSeeked(
+    filePath: string,
+    element: EventTarget | null,
+  ) {
+    if (shouldIgnoreSharedVideoEvent(filePath, element)) {
+      return;
+    }
+
+    storeSharedVideoPlayback(filePath, element);
+  }
+
+  function handleSharedVideoLoadedMetadata(
+    filePath: string,
+    surface: "grid" | "lightbox",
+    element: EventTarget | null,
+  ) {
+    if (!filePath || !(element instanceof HTMLVideoElement)) {
+      return;
+    }
+
+    applySharedVideoPlaybackToElement(filePath, surface, element);
+  }
+
+  function handleSharedVideoEnded(
+    filePath: string,
+    surface: "grid" | "lightbox",
+    element: EventTarget | null,
+  ) {
+    if (shouldIgnoreSharedVideoEvent(filePath, element)) {
+      return;
+    }
+
+    storeSharedVideoPlayback(filePath, element, {
+      shouldResume: false,
+      preferredSurface: surface,
+    });
   }
 
   async function openArchiveLightbox(file: any) {
@@ -1758,13 +2182,13 @@
         continue;
       }
 
-      const entry = gridVideoPreparation[file.path];
+      const entry = videoPreparationByPath[file.path];
 
       if (entry?.ready || entry?.error) {
         continue;
       }
 
-      ensureGridVideoPreparation(file);
+      ensureVideoPreparation(file);
     }
   });
 </script>
@@ -1902,7 +2326,7 @@
         </div>
       </div>
 
-      <div class="flex flex-wrap gap-2">
+      <div class="mt-0.5 flex flex-wrap gap-2">
         {#each availableExtensions as extension}
           <button
             type="button"
@@ -2175,12 +2599,48 @@
                         {:else if isVideoFile(file.extension)}
                           {#if gridVideoReady(file)}
                             <video
+                              data-video-path={file.path}
+                              data-shared-video="grid"
                               class="h-full w-full object-cover"
                               src={getMediaUrl(file.path)}
                               poster={getThumbnailUrl(file.path)}
                               controls
                               playsinline
                               preload="metadata"
+                              onloadedmetadata={(event) =>
+                                handleSharedVideoLoadedMetadata(
+                                  file.path,
+                                  "grid",
+                                  event.currentTarget,
+                                )}
+                              ontimeupdate={(event) =>
+                                handleSharedVideoTimeUpdate(
+                                  file.path,
+                                  event.currentTarget,
+                                )}
+                              onplay={(event) =>
+                                handleSharedVideoPlay(
+                                  file.path,
+                                  "grid",
+                                  event.currentTarget,
+                                )}
+                              onpause={(event) =>
+                                handleSharedVideoPause(
+                                  file.path,
+                                  "grid",
+                                  event.currentTarget,
+                                )}
+                              onseeked={(event) =>
+                                handleSharedVideoSeeked(
+                                  file.path,
+                                  event.currentTarget,
+                                )}
+                              onended={(event) =>
+                                handleSharedVideoEnded(
+                                  file.path,
+                                  "grid",
+                                  event.currentTarget,
+                                )}
                             >
                               <track kind="captions" />
                             </video>
@@ -2459,6 +2919,34 @@
     imageStyle={lightboxImageStyle}
     zoomOptions={lightboxZoomOptions}
     zoomLabel={lightboxZoomLabel}
+    onVideoLoadedMetadata={(event) =>
+      handleSharedVideoLoadedMetadata(
+        lightboxPathValue,
+        "lightbox",
+        event.currentTarget,
+      )}
+    onVideoTimeUpdate={(event) =>
+      handleSharedVideoTimeUpdate(lightboxPathValue, event.currentTarget)}
+    onVideoPlay={(event) =>
+      handleSharedVideoPlay(
+        lightboxPathValue,
+        "lightbox",
+        event.currentTarget,
+      )}
+    onVideoPause={(event) =>
+      handleSharedVideoPause(
+        lightboxPathValue,
+        "lightbox",
+        event.currentTarget,
+      )}
+    onVideoSeeked={(event) =>
+      handleSharedVideoSeeked(lightboxPathValue, event.currentTarget)}
+    onVideoEnded={(event) =>
+      handleSharedVideoEnded(
+        lightboxPathValue,
+        "lightbox",
+        event.currentTarget,
+      )}
     onClose={closeLightbox}
     onPrev={() => stepLightbox(-1)}
     onNext={() => stepLightbox(1)}

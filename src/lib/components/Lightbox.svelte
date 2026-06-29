@@ -30,6 +30,12 @@
     imageStyle: Record<string, string>;
     zoomOptions: { value: string; label: string; sortValue: number }[];
     zoomLabel: string;
+    onVideoLoadedMetadata: (event: Event) => void;
+    onVideoTimeUpdate: (event: Event) => void;
+    onVideoPlay: (event: Event) => void;
+    onVideoPause: (event: Event) => void;
+    onVideoSeeked: (event: Event) => void;
+    onVideoEnded: (event: Event) => void;
     onClose: () => void;
     onPrev: () => void;
     onNext: () => void;
@@ -77,6 +83,12 @@
     imageStyle,
     zoomOptions,
     zoomLabel,
+    onVideoLoadedMetadata,
+    onVideoTimeUpdate,
+    onVideoPlay,
+    onVideoPause,
+    onVideoSeeked,
+    onVideoEnded,
     onClose,
     onPrev,
     onNext,
@@ -108,18 +120,19 @@
         ? "overflow-hidden"
         : "overflow-auto",
   );
+
 </script>
 
 <svelte:window onkeydown={handleKeydown} />
 
 <div
-  class="fixed inset-0 z-50 bg-slate-950/95 px-2 py-3 sm:px-3 sm:py-4 lg:px-6"
+  class="fixed inset-0 z-50 bg-slate-950/95 px-1 py-3 sm:px-2 sm:py-4 lg:px-3"
 >
   <button
     onclick={onClose}
     type="button"
     aria-label="Close media viewer"
-    class="absolute right-4 top-4 z-20 inline-flex h-12 w-12 items-center justify-center rounded-full border border-slate-700 bg-slate-900/90 text-slate-100 transition hover:border-cyan-500 hover:text-cyan-300 sm:right-6 sm:top-6"
+    class="absolute right-2 top-2 z-20 inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-700 bg-slate-900/90 text-slate-100 transition hover:border-cyan-500 hover:text-cyan-300 sm:right-3 sm:top-3"
   >
     <svg class="h-6 w-6" viewBox="0 0 20 20" fill="currentColor"
       ><path
@@ -131,7 +144,7 @@
   </button>
 
   <div
-    class="mx-auto flex h-full w-full max-w-[min(88vw,1680px)] flex-col gap-2 xl:max-w-[min(calc(100vw-12rem),1680px)]"
+    class="mx-auto flex h-full w-full max-w-[min(94vw,1920px)] flex-col gap-2 xl:max-w-[min(calc(100vw-6rem),1920px)]"
   >
     <div
       class="shrink-0 rounded-2xl border border-slate-800 bg-slate-900/85 px-4 py-2.5 backdrop-blur"
@@ -254,7 +267,11 @@
       {/if}
 
       {#if mode !== "image"}
-        <div class="flex items-center justify-center p-4">
+        <div
+          class={mode === "video"
+            ? "flex h-full w-full items-center justify-center px-2 pt-4 pb-1 sm:px-3"
+            : "flex h-full w-full items-center justify-center p-4"}
+        >
           {#if mode === "video" && !videoReady}
             <div
               class="w-full max-w-xl rounded-3xl border border-slate-800 bg-slate-900/90 p-6 shadow-2xl shadow-slate-950/50"
@@ -276,10 +293,19 @@
           {#if mode === "video" && videoReady}
             <video
               src={videoUrl}
-              class="max-h-full max-w-full"
+              data-video-path={pathValue}
+              data-shared-video="lightbox"
+              class="block max-h-full max-w-full shrink object-contain"
               controls
+              autoplay
               playsinline
               preload="none"
+              onloadedmetadata={onVideoLoadedMetadata}
+              ontimeupdate={onVideoTimeUpdate}
+              onplay={onVideoPlay}
+              onpause={onVideoPause}
+              onseeked={onVideoSeeked}
+              onended={onVideoEnded}
             >
               <track kind="captions" label="No captions available" default />
             </video>
@@ -366,7 +392,7 @@
       disabled={prevDisabled}
       type="button"
       aria-label="Previous media"
-      class="absolute left-3 top-1/2 z-20 hidden h-14 w-14 -translate-y-1/2 items-center justify-center rounded-full border border-slate-700 bg-slate-900/90 text-slate-100 transition hover:border-cyan-500 hover:text-cyan-300 sm:flex sm:left-6 disabled:opacity-40"
+      class="absolute left-1 top-1/2 z-20 hidden h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full border border-slate-700 bg-slate-900/80 text-slate-100 transition hover:border-cyan-500 hover:text-cyan-300 sm:flex sm:left-2 disabled:opacity-40"
     >
       <svg class="h-7 w-7" viewBox="0 0 20 20" fill="currentColor"
         ><path
@@ -381,7 +407,7 @@
       disabled={nextDisabled}
       type="button"
       aria-label="Next media"
-      class="absolute right-3 top-1/2 z-20 hidden h-14 w-14 -translate-y-1/2 items-center justify-center rounded-full border border-slate-700 bg-slate-900/90 text-slate-100 transition hover:border-cyan-500 hover:text-cyan-300 sm:flex sm:right-6 disabled:opacity-40"
+      class="absolute right-1 top-1/2 z-20 hidden h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full border border-slate-700 bg-slate-900/80 text-slate-100 transition hover:border-cyan-500 hover:text-cyan-300 sm:flex sm:right-2 disabled:opacity-40"
     >
       <svg class="h-7 w-7" viewBox="0 0 20 20" fill="currentColor"
         ><path

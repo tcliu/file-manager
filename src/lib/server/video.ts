@@ -102,7 +102,7 @@ async function createProcessedVideo(sourcePath: string, processedPath: string): 
   });
 
   try {
-    await runFfmpegVideoConversion(sourcePath, tempPath, (progress) => {
+    await runFfmpegVideoConversion(sourcePath, tempPath, durationSeconds, (progress) => {
       videoConversionStatuses.set(processedPath, {
         state: 'pending', progress,
         message: progress >= 100 ? 'Finalizing converted video...' : 'Preparing video for browser playback...',
@@ -136,7 +136,7 @@ async function createProcessedVideo(sourcePath: string, processedPath: string): 
   return { path: processedPath, stat: await stat(processedPath), generated: true };
 }
 
-function runFfmpegVideoConversion(sourcePath: string, targetPath: string, onProgress?: (progress: number) => void): Promise<void> {
+function runFfmpegVideoConversion(sourcePath: string, targetPath: string, knownDurationSeconds: number | null, onProgress?: (progress: number) => void): Promise<void> {
   return new Promise((resolve, reject) => {
     const child = spawn('ffmpeg', [
       '-y', '-i', sourcePath, '-progress', 'pipe:2', '-nostats',
@@ -147,7 +147,7 @@ function runFfmpegVideoConversion(sourcePath: string, targetPath: string, onProg
     ], { stdio: ['ignore', 'ignore', 'pipe'] });
     let stderr = '';
     let stderrBuffer = '';
-    let durationSeconds: number | null = null;
+    let durationSeconds: number | null = knownDurationSeconds;
 
     const reportProgress = (value: number) => onProgress?.(value);
 
