@@ -502,14 +502,13 @@
   function formatDateTime(value: string): string {
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return "";
-    return date.toLocaleString([], {
-      year: "numeric",
-      month: "numeric",
-      day: "numeric",
-      hour: "numeric",
-      minute: "2-digit",
-      second: "2-digit",
-    });
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    const hours = String(date.getHours()).padStart(2, "0");
+    const minutes = String(date.getMinutes()).padStart(2, "0");
+    const seconds = String(date.getSeconds()).padStart(2, "0");
+    return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
   }
 
   function formatImageDimensions(file: any): string {
@@ -1754,11 +1753,12 @@
       return;
     }
 
-    storeSharedVideoPlayback(filePath, element, {
+    const videoEl = element as HTMLVideoElement | null;
+    storeSharedVideoPlayback(filePath, videoEl, {
       shouldResume: true,
       preferredSurface: surface,
     });
-    pauseOtherSharedVideos(filePath, element);
+    pauseOtherSharedVideos(filePath, videoEl);
   }
 
   function handleSharedVideoPause(
@@ -1770,7 +1770,8 @@
       return;
     }
 
-    storeSharedVideoPlayback(filePath, element, {
+    const videoEl = element as HTMLVideoElement | null;
+    storeSharedVideoPlayback(filePath, videoEl, {
       shouldResume: false,
       preferredSurface: surface,
     });
@@ -1784,8 +1785,9 @@
       return;
     }
 
-    storeSharedVideoPlayback(filePath, element, {
-      shouldResume: isSharedVideoPlaybackActive(element),
+    const videoEl = element as HTMLVideoElement | null;
+    storeSharedVideoPlayback(filePath, videoEl, {
+      shouldResume: isSharedVideoPlaybackActive(videoEl),
     });
   }
 
@@ -1797,7 +1799,7 @@
       return;
     }
 
-    storeSharedVideoPlayback(filePath, element);
+    storeSharedVideoPlayback(filePath, element as HTMLVideoElement | null);
   }
 
   function handleSharedVideoLoadedMetadata(
@@ -1821,7 +1823,7 @@
       return;
     }
 
-    storeSharedVideoPlayback(filePath, element, {
+    storeSharedVideoPlayback(filePath, element as HTMLVideoElement | null, {
       shouldResume: false,
       preferredSurface: surface,
     });
