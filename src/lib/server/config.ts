@@ -37,7 +37,7 @@ export function invalidateAppConfig(): void {
 
 function loadAppConfigSync(): AppConfig {
   const entries = loadEnvEntries();
-  const rootDir = getRootDir();
+  const rootDir = getRootDir(entries);
 
   let rootDirs: string[] = [];
   if (entries['root-dir']) {
@@ -97,14 +97,20 @@ function normalizeConfiguredDir(value: string | undefined, fallback: string, roo
   return relativePath.split(path.sep).join('/');
 }
 
-function getRootDir(): string {
-  const configuredDir = process.env['FILE_MANAGER_ROOT_DIR'] || process.cwd();
-  return path.resolve(configuredDir);
+function getEnvBaseDir(): string {
+  return path.resolve(process.env['FILE_MANAGER_ROOT_DIR'] || process.cwd());
+}
+
+function getRootDir(entries?: Record<string, string>): string {
+  if (entries?.['file-manager-root-dir']) {
+    return path.resolve(entries['file-manager-root-dir']);
+  }
+  return getEnvBaseDir();
 }
 
 export function getRootDirs(): string[] {
-  const rootDir = getRootDir();
   const entries = loadEnvEntries();
+  const rootDir = getRootDir(entries);
 
   if (entries['root-dir']) {
     const parts = entries['root-dir'].split(',').map(d => d.trim()).filter(Boolean);
@@ -121,7 +127,7 @@ export function getRootDirPath(): string {
 
 function loadEnvEntries(): Record<string, string> {
   const mergedEntries: Record<string, string> = {};
-  const baseDir = getRootDir();
+  const baseDir = getEnvBaseDir();
 
   for (const fileName of ['.env', '.env.local']) {
     try {
