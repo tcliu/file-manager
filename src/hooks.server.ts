@@ -7,9 +7,8 @@ export const handle: Handle = async ({ event, resolve }) => {
   const path = url.pathname;
 
   const publicPaths = ['/', '/api/login', '/api/logout', '/api/zip-download'];
-  const isMediaPath = path === '/media' || path === '/thumbnail' || path === '/download' || path === '/archive-entry-download';
 
-  if (appConfig.auth.enabled && !publicPaths.includes(path) && !isMediaPath) {
+  if (appConfig.auth.enabled && !publicPaths.includes(path)) {
     const token = event.request.headers.get('x-session-token')
       || url.searchParams.get('token')
       || '';

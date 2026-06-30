@@ -515,7 +515,10 @@
     );
     const rawPage = url.searchParams.get("page");
     const rawPageSize = url.searchParams.get("page-size");
-    const filename = url.searchParams.get("filename") ?? "";
+    const filename =
+      url.searchParams.get("name_filter") ??
+      url.searchParams.get("filename") ??
+      "";
     let page = 1;
     let pageSize: number | string = 20;
     const parsedPage = parseInt(rawPage ?? "", 10);
@@ -569,10 +572,11 @@
     url.searchParams.set("page", String(ui.page));
     url.searchParams.set("page-size", String(ui.pageSize));
     if (nameFilter) {
-      url.searchParams.set("filename", nameFilter);
+      url.searchParams.set("name_filter", nameFilter);
     } else {
-      url.searchParams.delete("filename");
+      url.searchParams.delete("name_filter");
     }
+    url.searchParams.delete("filename");
     url.searchParams.delete("ext");
     for (const ext of [...ui.requestedExtensions].sort()) {
       url.searchParams.append("ext", ext);
@@ -795,65 +799,84 @@
     }
     updateSessionInfo();
     loading = true;
-    const query = new URLSearchParams({
-      dir: ui.currentDir,
-      page: String(ui.page),
-      pageSize: String(ui.pageSize),
-      view: viewMode,
-      name_filter: nameFilter,
-    });
-    for (const extension of [...ui.requestedExtensions].sort())
-      query.append("ext", extension);
     const requestId = ++loadFilesRequestId;
-    const response = await fetch("/api/files?" + query.toString(), {
-      headers: getAuthHeaders(),
-    });
-    if (requestId !== loadFilesRequestId) return;
-    if (response.status === 401) {
-      forceLogout("Session expired: please log in again");
-      return;
+    try {
+      const query = new URLSearchParams({
+        dir: ui.currentDir,
+        page: String(ui.page),
+        pageSize: String(ui.pageSize),
+        view: viewMode,
+        name_filter: nameFilter,
+      });
+      for (const extension of [...ui.requestedExtensions].sort()) {
+        query.append("ext", extension);
+      }
+
+      const response = await fetch("/api/files?" + query.toString(), {
+        headers: getAuthHeaders(),
+      });
+      if (requestId !== loadFilesRequestId) return;
+
+      if (response.status === 401) {
+        forceLogout("Session expired: please log in again");
+        return;
+      }
+
+      const data = await response.json().catch(() => ({}));
+      if (requestId !== loadFilesRequestId) return;
+
+      if (!response.ok) {
+        throw new Error(data.error ?? "Failed to load files");
+      }
+
+      if (
+        data.selectedExtensions.length === 0 &&
+        ui.requestedExtensions.size > 0
+      ) {
+        ui.requestedExtensions.clear();
+        ui.selectedExtensions.clear();
+        selectedExtensionsList = [];
+      }
+      if (data.extensions) {
+        availableExtensions = data.extensions;
+      }
+      totalItems = data.directories.length + data.total;
+      pageSizeOptions = data.pageSizeOptions;
+      ui.page = data.page;
+      ui.totalPages = data.totalPages;
+      ui.currentDir = data.directory;
+      ui.visibleMediaFiles = data.files.filter(
+        (f: any) => isImageFile(f.extension) || isVideoFile(f.extension),
+      );
+      ui.totalMedia = data.totalMedia ?? 0;
+      ui.mediaOffset = data.mediaOffset ?? 0;
+      directories = data.directories;
+      files = data.files;
+      pageInfoText = String(data.totalPages);
+      pageInputValue = String(data.page);
+      pageInputMax = String(data.totalPages);
+      pageSizeDisplay = String(data.pageSize);
+      pageSizeMenuOpen = false;
+      canGoPrev = data.page > 1;
+      canGoNext = data.page < data.totalPages;
+      syncBreadcrumbState();
+      summaryFolderText =
+        data.directories.length > 0 ? data.directories.length + " folders" : "";
+      summaryFileText = data.total > 0 ? data.total + " files" : "";
+      totalSizeText = data.total > 0 ? formatBytes(data.totalSize) : "";
+      updateSelectedCount();
+      statusText =
+        data.directories.length || data.files.length ? "" : "No items found.";
+      syncLocationState();
+    } catch (error) {
+      if (requestId !== loadFilesRequestId) return;
+      statusText =
+        error instanceof Error ? error.message : "Failed to load files";
+    } finally {
+      if (requestId === loadFilesRequestId) {
+        loading = false;
+      }
     }
-    const data = await response.json();
-    if (requestId !== loadFilesRequestId) return;
-    if (
-      data.selectedExtensions.length === 0 &&
-      ui.requestedExtensions.size > 0
-    ) {
-      ui.requestedExtensions.clear();
-      ui.selectedExtensions.clear();
-      selectedExtensionsList = [];
-    }
-    if (data.extensions) {
-      availableExtensions = data.extensions;
-    }
-    totalItems = data.directories.length + data.total;
-    pageSizeOptions = data.pageSizeOptions;
-    ui.page = data.page;
-    ui.totalPages = data.totalPages;
-    ui.currentDir = data.directory;
-    ui.visibleMediaFiles = data.files.filter(
-      (f: any) => isImageFile(f.extension) || isVideoFile(f.extension),
-    );
-    ui.totalMedia = data.totalMedia ?? 0;
-    ui.mediaOffset = data.mediaOffset ?? 0;
-    directories = data.directories;
-    files = data.files;
-    pageInfoText = String(data.totalPages);
-    pageInputValue = String(data.page);
-    pageInputMax = String(data.totalPages);
-    pageSizeDisplay = String(data.pageSize);
-    pageSizeMenuOpen = false;
-    canGoPrev = data.page > 1;
-    canGoNext = data.page < data.totalPages;
-    syncBreadcrumbState();
-    summaryFolderText = data.directories.length > 0 ? data.directories.length + " folders" : "";
-    summaryFileText = data.total > 0 ? data.total + " files" : "";
-    totalSizeText = data.total > 0 ? formatBytes(data.totalSize) : "";
-    updateSelectedCount();
-    statusText =
-      data.directories.length || data.files.length ? "" : "No items found.";
-    loading = false;
-    syncLocationState();
   }
 
   function syncBreadcrumbState() {

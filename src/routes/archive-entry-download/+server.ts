@@ -3,7 +3,7 @@ import path from 'node:path';
 import type { RequestHandler } from './$types';
 import { resolveListedFilePath } from '$lib/server/file-utils';
 import { getInlineContentType, getContentDisposition } from '$lib/server/constants';
-import { listZipArchiveContents, ensureZipArchiveEntryReadable, streamZipArchiveEntry } from '$lib/server/archive';
+import { listZipArchiveContents, streamZipArchiveEntry } from '$lib/server/archive';
 import { logAccess } from '$lib/server/logging';
 
 function normalizeArchiveEntryPath(relativePath: string): string {
@@ -53,14 +53,6 @@ export const GET: RequestHandler = async ({ url, request }) => {
   if (!archiveFile) {
     return new Response('Archive entry not found', {
       status: 404, headers: { 'content-type': 'text/plain; charset=utf-8' },
-    });
-  }
-
-  try {
-    await ensureZipArchiveEntryReadable(archivePath, normalizedEntryPath);
-  } catch (error) {
-    return new Response((error as Error).message || 'Failed to read archive entry', {
-      status: 500, headers: { 'content-type': 'text/plain; charset=utf-8' },
     });
   }
 

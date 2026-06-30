@@ -22,6 +22,8 @@ export function getSharpInputExtensions(): Set<string> {
 export const SHARP_INPUT_EXTENSIONS = getSharpInputExtensions();
 
 const activeImageConversions = new Map<string, Promise<{ path: string; stat: import('node:fs').Stats; generated: boolean }>>();
+const IMAGE_METADATA_CACHE_LIMIT = 1000;
+const imageMetadataCache = new Map<string, { timestamp: string | null; width: number | null; height: number | null }>();
 
 const EXIF_TAG_NUMBERS: Record<string, number> = {
   DateTime: 0x0132,
@@ -245,9 +247,21 @@ export async function enrichImageMetadata(
   options?: { extractTimestamp?: boolean },
 ): Promise<void> {
   const { IMAGE_EXTENSIONS } = await import('./constants');
+
   await Promise.all(files.map(async (file) => {
     if (!IMAGE_EXTENSIONS.has(file.extension)) return;
-    const metadata = await readImageMetadata(resolveListedFilePath(file.path));
+
+    const cacheKey = `${file.path}|${file.modifiedAt ?? ''}`;
+    let metadata = imageMetadataCache.get(cacheKey);
+
+    if (!metadata) {
+      metadata = await readImageMetadata(resolveListedFilePath(file.path));
+      imageMetadataCache.set(cacheKey, metadata);
+      if (imageMetadataCache.size > IMAGE_METADATA_CACHE_LIMIT) {
+        imageMetadataCache.delete(imageMetadataCache.keys().next().value!);
+      }
+    }
+
     if (metadata.width && metadata.height) {
       file.width = metadata.width;
       file.height = metadata.height;

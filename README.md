@@ -8,7 +8,6 @@ The original `file-manager.mjs` standalone server is preserved in this repo as t
 
 - Node.js
 - `ffmpeg` for browser-playable video generation, video thumbnails, and `.arw` preview conversion
-- `unzip` or `zipinfo` for browsing `.zip` archives
 - Optional: ImageMagick `convert` as a fallback for `.arw` preview conversion when `ffmpeg` conversion fails
 
 ## Install

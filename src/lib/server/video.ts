@@ -33,6 +33,8 @@ class ConcurrencyLimiter {
 
 const videoConversionLimiter = new ConcurrencyLimiter();
 const activeVideoConversions = new Map<string, Promise<{ path: string; stat: import('node:fs').Stats; generated: boolean }>>();
+const VIDEO_DIMENSIONS_CACHE_LIMIT = 1000;
+const videoDimensionsCache = new Map<string, { width: number | null; height: number | null }>();
 const videoConversionStatuses = new Map<string, {
   state: string;
   progress: number;
@@ -322,11 +324,23 @@ function probeVideoDimensions(sourcePath: string): Promise<{ width: number | nul
   });
 }
 
-export async function enrichVideoDimensions(files: { extension: string; path: string; width?: number; height?: number }[]): Promise<void> {
+export async function enrichVideoDimensions(files: { extension: string; path: string; width?: number; height?: number; modifiedAt?: string }[]): Promise<void> {
   const { VIDEO_EXTENSIONS } = await import('./constants');
+
   await Promise.all(files.map(async (file) => {
     if (!VIDEO_EXTENSIONS.has(file.extension)) return;
-    const dimensions = await probeVideoDimensions(resolveListedFilePath(file.path));
+
+    const cacheKey = `${file.path}|${file.modifiedAt ?? ''}`;
+    let dimensions = videoDimensionsCache.get(cacheKey);
+
+    if (!dimensions) {
+      dimensions = await probeVideoDimensions(resolveListedFilePath(file.path));
+      videoDimensionsCache.set(cacheKey, dimensions);
+      if (videoDimensionsCache.size > VIDEO_DIMENSIONS_CACHE_LIMIT) {
+        videoDimensionsCache.delete(videoDimensionsCache.keys().next().value!);
+      }
+    }
+
     if (dimensions.width && dimensions.height) {
       file.width = dimensions.width;
       file.height = dimensions.height;

@@ -30,12 +30,15 @@ export const POST: RequestHandler = async ({ request, url }) => {
     return json({ error: 'Expected multipart/form-data upload' }, { status: 400 });
   }
 
-  const body = Buffer.from(await request.arrayBuffer());
+  if (!request.body) {
+    return json({ error: 'Missing upload body' }, { status: 400 });
+  }
+
   let uploaded: string[];
   const uploadLogEntries: { fileName: string; size: number }[] = [];
 
   try {
-    uploaded = await saveMultipartFiles(body, boundary, destinationDir, {
+    uploaded = await saveMultipartFiles(request.body, boundary, destinationDir, {
       overwriteExisting,
       onFileSaved(file) {
         uploadLogEntries.push(file);

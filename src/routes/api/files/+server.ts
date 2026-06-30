@@ -25,23 +25,20 @@ export const GET: RequestHandler = async ({ url, request }) => {
   let selectedExtensions = url.searchParams.getAll('ext').map((ext) => ext.toLowerCase());
   const nameFilter = (url.searchParams.get('name_filter') ?? '').trim().toLowerCase();
 
-  let listing = await listDirectoryContents(currentDir, []);
+  let listing = await listDirectoryContents(currentDir, {
+    selectedExtensions,
+    nameFilter,
+  });
 
-  const extensions = [...new Set(listing.files.map((f) => f.extension))].sort();
+  const extensions = listing.extensions;
 
   let filteredFiles = listing.files;
   if (selectedExtensions.length > 0) {
-    filteredFiles = listing.files.filter((f) => selectedExtensions.includes(f.extension));
     if (filteredFiles.length === 0) {
       selectedExtensions = [];
+      listing = await listDirectoryContents(currentDir, { nameFilter });
       filteredFiles = listing.files;
     }
-  }
-
-  if (nameFilter) {
-    filteredFiles = filteredFiles.filter((f) => f.name.toLowerCase().includes(nameFilter));
-    const filteredDirs = listing.directories.filter((d) => d.name.toLowerCase().includes(nameFilter));
-    listing = { ...listing, directories: filteredDirs };
   }
 
   const total = filteredFiles.length;

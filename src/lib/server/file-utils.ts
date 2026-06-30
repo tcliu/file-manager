@@ -169,50 +169,76 @@ export interface DirectoryEntry {
 export interface DirectoryListing {
   directories: DirectoryEntry[];
   files: FileEntry[];
+  extensions: string[];
 }
 
-export async function listDirectoryContents(relativeDir: string, selectedExtensions: string[]): Promise<DirectoryListing> {
+export async function listDirectoryContents(
+  relativeDir: string,
+  options: { selectedExtensions?: string[]; nameFilter?: string } = {},
+): Promise<DirectoryListing> {
   const rootDirs = getRootDirs();
+  const selectedExtensions = options.selectedExtensions ?? [];
+  const nameFilter = (options.nameFilter ?? '').trim().toLowerCase();
 
   if (rootDirs.length > 1 && (!relativeDir || relativeDir === '.')) {
     const directories: DirectoryEntry[] = [];
     for (const dir of rootDirs.sort((a, b) => path.basename(a).localeCompare(path.basename(b)))) {
       directories.push({ name: path.basename(dir), path: path.basename(dir) });
     }
-    return { directories, files: [] };
+    return { directories, files: [], extensions: [] };
   }
 
   const targetDir = resolveListedDirectoryPath(relativeDir);
   const entries = await readdir(targetDir, { withFileTypes: true });
   const directories: DirectoryEntry[] = [];
-  const files: FileEntry[] = [];
+  const extensions = new Set<string>();
+  const fileEntries: {
+    name: string;
+    path: string;
+    extension: string;
+    absolutePath: string;
+  }[] = [];
 
   for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
     if (entry.name.startsWith('.')) continue;
-    const absolutePath = path.join(targetDir, entry.name);
+
+    const lowerName = entry.name.toLowerCase();
     const relativePath = path.posix.join(relativeDir, entry.name).replace(/^\//, '');
 
     if (entry.isDirectory()) {
+      if (nameFilter && !lowerName.includes(nameFilter)) continue;
       directories.push({ name: entry.name, path: relativePath });
       continue;
     }
 
     if (!entry.isFile()) continue;
-    const extension = path.extname(entry.name).slice(1).toLowerCase();
 
+    const extension = path.extname(entry.name).slice(1).toLowerCase();
+    if (extension) extensions.add(extension);
+
+    if (nameFilter && !lowerName.includes(nameFilter)) continue;
     if (selectedExtensions.length > 0 && !selectedExtensions.includes(extension)) continue;
 
-    const fileStat = await stat(absolutePath);
-    files.push({
+    fileEntries.push({
       name: entry.name,
       path: relativePath,
       extension,
-      size: fileStat.size,
-      modifiedAt: fileStat.mtime.toISOString(),
+      absolutePath: path.join(targetDir, entry.name),
     });
   }
 
-  return { directories, files };
+  const files = await Promise.all(fileEntries.map(async (entry) => {
+    const fileStat = await stat(entry.absolutePath);
+    return {
+      name: entry.name,
+      path: entry.path,
+      extension: entry.extension,
+      size: fileStat.size,
+      modifiedAt: fileStat.mtime.toISOString(),
+    } satisfies FileEntry;
+  }));
+
+  return { directories, files, extensions: [...extensions].sort() };
 }
 
 export async function listExtensions(dir: string, relativeDir: string): Promise<string[]> {

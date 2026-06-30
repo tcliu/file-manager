@@ -179,8 +179,10 @@ export const POST: RequestHandler = async ({ request, url }) => {
                   } else {
                     const archiveExt = imageFormat === 'png' ? 'png' : 'jpg';
                     const nameInArchive = file.archivePath.replace(/\.[^/.]+$/, '') + '.' + archiveExt;
-                    const resizedName = path.basename(file.sourcePath).replace(/\.[^/.]+$/, '') + '.' + archiveExt;
-                    const resizedPath = path.join(resizeDir, resizedName);
+                    const resizedPath = path.join(
+                      resizeDir,
+                      file.archivePath.replace(/\.[^/.]+$/, '') + '.' + archiveExt,
+                    );
                     await mkdir(path.dirname(resizedPath), { recursive: true });
                     let pipeline = sharp(file.sourcePath).rotate();
                     if (needsResize) {

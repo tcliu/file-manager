@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { createWriteStream } from 'node:fs';
-import { stat, readdir } from 'node:fs/promises';
+import { stat } from 'node:fs/promises';
 import yauzl from 'yauzl';
 import archiver from 'archiver';
 import { logEvent } from './logging';
@@ -139,34 +139,6 @@ export async function streamZipArchiveEntry(filePath: string, entryPath: string,
   }
 }
 
-export async function ensureZipArchiveEntryReadable(filePath: string, entryPath: string): Promise<void> {
-  const zipfile = await yauzl.openPromise(filePath, { lazyEntries: true });
-
-  try {
-    for await (const entry of zipfile.eachEntry()) {
-      if (entry.fileName.replace(/\/$/, '') === entryPath) {
-        return;
-      }
-    }
-    throw new Error(`Archive entry not found: ${entryPath}`);
-  } finally {
-    zipfile.close();
-  }
-}
-
-export async function countFilesRecursive(dirPath: string): Promise<number> {
-  let count = 0;
-  const entries = await readdir(dirPath, { withFileTypes: true });
-  for (const entry of entries) {
-    if (entry.isDirectory()) {
-      count += await countFilesRecursive(path.join(dirPath, entry.name));
-    } else {
-      count++;
-    }
-  }
-  return count;
-}
-
 export async function createZipArchive(
   cwd: string,
   archivePath: string,
@@ -174,17 +146,6 @@ export async function createZipArchive(
   folderName?: string,
   onProgress?: (processed: number, total: number) => void,
 ): Promise<void> {
-  let totalFiles = 0;
-  for (const item of selectedItems) {
-    const sourcePath = path.join(cwd, item);
-    const itemStat = await stat(sourcePath);
-    if (itemStat.isDirectory()) {
-      totalFiles += await countFilesRecursive(sourcePath);
-    } else {
-      totalFiles++;
-    }
-  }
-
   return new Promise((resolve, reject) => {
     const output = createWriteStream(archivePath);
     const archive = archiver('zip', { zlib: { level: 9 } });
