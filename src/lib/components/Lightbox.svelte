@@ -170,9 +170,7 @@
 
   let backdropClass = $derived(
     mode === "image"
-      ? canPan
-        ? "overflow-auto cursor-grab touch-none items-start justify-start"
-        : "overflow-auto touch-none items-center justify-center"
+      ? `overflow-auto touch-none items-start justify-start${canPan ? " cursor-grab" : ""}`
       : mode === "video"
         ? "overflow-hidden items-center justify-center"
         : "overflow-auto items-center justify-center",
@@ -372,7 +370,7 @@
                   .map(([k, v]) => `${k}: ${v}`)
                   .join("; ")
               : "max-width: 100%; max-height: 100%; object-fit: contain;"}
-            class="block max-w-none shrink-0"
+            class="m-auto block max-w-none shrink-0"
             onload={onImageLoad}
             onerror={onImageError}
           />

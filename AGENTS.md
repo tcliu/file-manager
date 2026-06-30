@@ -8,6 +8,16 @@
 - For generated SQL DDL, use multi-line `create table` statements.
 - For generated SQL DDL, keep related `create index` statements adjacent to the table they belong to.
 
+## Refactoring Pattern
+
+- Prefer incremental refactors over large rewrites. Extract one cohesive domain at a time and keep behavior stable after each step.
+- For TypeScript helper modules, use hyphen-case filenames (for example `client-auth.ts`, `file-listing.ts`).
+- When refactoring `FileManager.svelte`, keep the component as the orchestration layer and extract reusable domain logic into `src/lib/components/file-manager/*.ts` helper modules.
+- Extract pure or mostly pure logic first: query building, response mapping, derived state calculations, selection helpers, upload helpers, and formatting helpers.
+- Avoid mixing refactors with unrelated behavior changes unless the behavior change is required to keep the code correct.
+- If a neighboring file already has unrelated worktree changes, avoid refactors that require editing that file unless the task explicitly requires it.
+- After each refactor slice, run the project checks and keep the codebase in a passing state before continuing.
+
 ## Lightbox / Media Viewer Design
 
 - Zoom is image-only (not video/zip). Controlled via +/- buttons, zoom dropdown menu, or ArrowUp/ArrowDown keyboard shortcuts.

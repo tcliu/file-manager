@@ -12,6 +12,7 @@ export interface SharedVideoController {
     nextValues?: Partial<SharedVideoPlaybackEntry>,
   ) => SharedVideoPlaybackEntry;
   pauseElement: (element: HTMLVideoElement | null) => void;
+  pauseOthers: (activeFilePath: string, activeElement?: HTMLVideoElement | null) => void;
   isPlaybackActive: (element: HTMLVideoElement | null) => boolean;
   getElementsByPath: (filePath: string) => HTMLVideoElement[];
   getElementSurface: (element: HTMLVideoElement) => 'grid' | 'lightbox' | '';
@@ -251,6 +252,7 @@ export function createSharedVideoController(): SharedVideoController {
     getPlaybackEntry,
     storePlayback,
     pauseElement,
+    pauseOthers: pauseOtherVideos,
     isPlaybackActive,
     getElementsByPath,
     getElementSurface,

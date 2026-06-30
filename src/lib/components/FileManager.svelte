@@ -45,6 +45,14 @@
     uploadCandidateWithXhr,
   } from "./file-manager/upload-flow";
   import {
+    createVideoPreparationErrorEntry,
+    getDefaultVideoPreparationEntry,
+    getVideoPreparationProgress,
+    normalizeVideoPreparationResponse,
+    videoRequiresPreparation,
+    type VideoPreparationEntry,
+  } from "./file-manager/video-preparation";
+  import {
     clearSession,
     createTokenizedFileUrl,
     getAuthHeaders,
@@ -73,14 +81,6 @@
     imageExtensions: string[];
     videoExtensions: string[];
     thumbnailSupportedExtensions: string[];
-  }
-
-  interface VideoPreparationEntry {
-    ready: boolean;
-    progress: number;
-    message: string;
-    error: string;
-    requiresConversion?: boolean;
   }
 
   let {
@@ -654,12 +654,6 @@
     );
   }
 
-  function videoRequiresPreparation(extension: string): boolean {
-    return (
-      isVideoFile(extension) && String(extension || "").toLowerCase() !== "webm"
-    );
-  }
-
   function getVideoPreparationEntry(
     filePath: string,
     extension: string,
@@ -669,19 +663,7 @@
       return existing;
     }
 
-    if (!isVideoFile(extension)) {
-      return { ready: false, progress: 0, message: "", error: "" };
-    }
-
-    return {
-      ready: !videoRequiresPreparation(extension),
-      requiresConversion: videoRequiresPreparation(extension),
-      progress: videoRequiresPreparation(extension) ? 0 : 100,
-      message: videoRequiresPreparation(extension)
-        ? "Preparing video for browser playback..."
-        : "Video ready",
-      error: "",
-    };
+    return getDefaultVideoPreparationEntry(extension, isVideoFile);
   }
 
   function getGridVideoPreparationEntry(file: any): VideoPreparationEntry {
@@ -720,12 +702,11 @@
       return;
     }
 
-    const progress = Math.max(0, Math.min(100, Number(entry.progress) || 0));
-    lightboxVideoProgressLabel =
-      entry.message || "Preparing video for browser playback...";
-    lightboxVideoProgressValue = progress + "%";
-    lightboxVideoProgressWidth = progress + "%";
-    lightboxVideoErrorText = entry.error || "";
+    const progress = getVideoPreparationProgress(entry);
+    lightboxVideoProgressLabel = progress.label;
+    lightboxVideoProgressValue = progress.value;
+    lightboxVideoProgressWidth = progress.width;
+    lightboxVideoErrorText = progress.error;
 
     if (entry.ready) {
       lightboxVideoUrl = getMediaUrl(filePath);
@@ -802,17 +783,11 @@
       while (true) {
         const data = await fetchVideoPreparation(file.path);
 
-        updateVideoPreparation(file.path, file.extension, {
-          ready: !!data.ready,
-          requiresConversion: data.requiresConversion !== false,
-          progress: Math.max(0, Math.min(100, Number(data.progress) || 0)),
-          message:
-            data.message ||
-            (data.ready
-              ? "Video ready"
-              : "Preparing video for browser playback..."),
-          error: data.error || "",
-        });
+        updateVideoPreparation(
+          file.path,
+          file.extension,
+          normalizeVideoPreparationResponse(data),
+        );
 
         if (data.ready || data.error) {
           return;
@@ -821,14 +796,11 @@
         await new Promise((resolve) => setTimeout(resolve, 400));
       }
     } catch (error) {
-      updateVideoPreparation(file.path, file.extension, {
-        ready: false,
-        progress: 0,
-        message: "Preparing video for browser playback...",
-        requiresConversion: true,
-        error:
-          error instanceof Error ? error.message : "Failed to prepare video",
-      });
+      updateVideoPreparation(
+        file.path,
+        file.extension,
+        createVideoPreparationErrorEntry(error),
+      );
     } finally {
       activeVideoPreparationPolls.delete(file.path);
     }
@@ -1410,7 +1382,7 @@
       shouldResume: true,
       preferredSurface: surface,
     });
-    sharedVideo.handoffToSurface(filePath, surface, true);
+    sharedVideo.pauseOthers(filePath, videoEl);
   }
 
   function handleSharedVideoPause(
@@ -1746,15 +1718,29 @@
   }
 
   function setLightboxZoom(value: string) {
-    const anchor = captureLightboxCenterAnchor();
+    const wasFit = lightboxZoomValue === LIGHTBOX_FIT_ZOOM_VALUE;
+    const anchor = wasFit ? null : captureLightboxCenterAnchor();
     const nextValue = value || LIGHTBOX_FIT_ZOOM_VALUE;
     lightboxZoomValue = nextValue;
     lightboxZoomMenuOpen = false;
     updateLightboxZoomOptionLabels();
     updateLightboxZoomControls();
     updateLightboxImageStyle();
-    restoreLightboxCenterAnchor(anchor);
+    if (wasFit) {
+      centerLightboxImageInViewport();
+    } else {
+      restoreLightboxCenterAnchor(anchor);
+    }
     syncLocationState();
+  }
+
+  function centerLightboxImageInViewport() {
+    window.requestAnimationFrame(() => {
+      const backdrop = document.getElementById("lightboxBackdrop");
+      if (!backdrop) return;
+      backdrop.scrollLeft = Math.max(0, (backdrop.scrollWidth - backdrop.clientWidth) / 2);
+      backdrop.scrollTop = Math.max(0, (backdrop.scrollHeight - backdrop.clientHeight) / 2);
+    });
   }
 
   function nudgeLightboxZoom(direction: number) {
