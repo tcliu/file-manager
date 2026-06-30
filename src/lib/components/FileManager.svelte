@@ -499,6 +499,9 @@
         filePath: "",
         zoomValue: null as string | null,
         selectedExtensions: new Set<string>(),
+        page: 1,
+        pageSize: 20,
+        filename: "",
       };
     }
     const url = new URL(window.location.href);
@@ -508,6 +511,21 @@
     const selectedExtensions = parseSelectedExtensionsParam(
       url.searchParams.getAll("ext"),
     );
+    const rawPage = url.searchParams.get("page");
+    const rawPageSize = url.searchParams.get("page-size");
+    const filename = url.searchParams.get("filename") ?? "";
+    let page = 1;
+    let pageSize: number | string = 20;
+    const parsedPage = parseInt(rawPage ?? "", 10);
+    if (Number.isFinite(parsedPage) && parsedPage > 0) page = parsedPage;
+    if (rawPageSize !== null) {
+      if (rawPageSize.toLowerCase() === "all") {
+        pageSize = "All";
+      } else {
+        const parsed = parseInt(rawPageSize, 10);
+        if (Number.isFinite(parsed) && parsed > 0) pageSize = parsed;
+      }
+    }
     let directory = "";
     let normalizedFilePath = "";
     try {
@@ -530,6 +548,9 @@
       filePath: normalizedFilePath,
       zoomValue,
       selectedExtensions,
+      page,
+      pageSize,
+      filename,
     };
   }
 
@@ -542,6 +563,13 @@
       url.searchParams.set("p", ui.currentDir);
     } else {
       url.searchParams.delete("p");
+    }
+    url.searchParams.set("page", String(ui.page));
+    url.searchParams.set("page-size", String(ui.pageSize));
+    if (nameFilter) {
+      url.searchParams.set("filename", nameFilter);
+    } else {
+      url.searchParams.delete("filename");
     }
     url.searchParams.delete("ext");
     for (const ext of [...ui.requestedExtensions].sort()) {
@@ -834,6 +862,7 @@
     statusText =
       data.directories.length || data.files.length ? "" : "No items found.";
     loading = false;
+    syncLocationState();
   }
 
   function syncBreadcrumbState() {
@@ -1258,7 +1287,7 @@
     compressDialogErrorText = "";
     compressDialogTotalSize = selectedTotalSize;
     compressDialogImageFormat = commonImageExtension === "png" ? "png" : "jpeg";
-    if ([...ui.selectedFiles].some((p) => directories.some((d) => d.path === p))) {
+    if (ui.selectedFiles.size > 0) {
       try {
         const query = new URLSearchParams({ dir: ui.currentDir });
         const response = await fetch("/api/selection-size?" + query.toString(), {
@@ -1325,35 +1354,68 @@
     }
     try {
       const reader = response.body!.getReader();
-      const textDecoder = new TextDecoder();
       const chunks: Uint8Array[] = [];
       let zipDataStart: number | null = null;
+      const doneMarker = new Uint8Array([0x22, 0x64, 0x6F, 0x6E, 0x65, 0x22]); // "done"
+      const newlineByte = 0x0A;
+
+      function findMarker(data: Uint8Array): number {
+        for (let i = 0; i <= data.length - doneMarker.length; i++) {
+          let match = true;
+          for (let j = 0; j < doneMarker.length; j++) {
+            if (data[i + j] !== doneMarker[j]) { match = false; break; }
+          }
+          if (match) return i;
+        }
+        return -1;
+      }
+
+      function concatSearchPrefix(): Uint8Array {
+        const maxBytes = 262144;
+        let take = 0;
+        for (const c of chunks) {
+          take += c.length;
+          if (take >= maxBytes) { take = maxBytes; break; }
+        }
+        const buf = new Uint8Array(take);
+        let off = 0;
+        for (const c of chunks) {
+          const copy = Math.min(c.length, take - off);
+          buf.set(c.subarray(0, copy), off);
+          off += copy;
+          if (off >= take) break;
+        }
+        return buf;
+      }
 
       while (true) {
         const { done, value } = await reader.read();
         if (value) chunks.push(value);
 
-        if (zipDataStart === null) {
-          const totalLen = chunks.reduce((s, c) => s + c.length, 0);
-          const combined = new Uint8Array(totalLen);
-          let off = 0;
-          for (const c of chunks) { combined.set(c, off); off += c.length; }
-
-          const text = textDecoder.decode(combined, { stream: !done });
-          const doneIdx = text.indexOf('"done"');
-          if (doneIdx !== -1) {
-            const lineEnd = text.indexOf('\n', doneIdx);
-            if (lineEnd !== -1) {
-              const progressText = text.slice(0, lineEnd);
-              for (const line of progressText.split('\n').filter(Boolean)) {
+        if (zipDataStart === null && chunks.length > 0) {
+          const prefix = concatSearchPrefix();
+          const markerIdx = findMarker(prefix);
+          if (markerIdx !== -1) {
+            let lineEnd = markerIdx + doneMarker.length;
+            while (lineEnd < prefix.length && prefix[lineEnd] !== newlineByte) {
+              lineEnd++;
+            }
+            if (lineEnd < prefix.length) {
+              const endOfLine = lineEnd + 1;
+              const textPortion = new TextDecoder().decode(prefix.slice(0, endOfLine));
+              for (const line of textPortion.split('\n').filter(Boolean)) {
                 try { const d = JSON.parse(line); if (typeof d.p === 'number') compressDialogProgress = d.p; } catch {}
               }
-              zipDataStart = new TextEncoder().encode(text.slice(0, lineEnd + 1)).length;
+              zipDataStart = endOfLine;
             }
           } else if (!done) {
-            const lastNewline = text.lastIndexOf('\n');
-            if (lastNewline > 0) {
-              for (const line of text.slice(0, lastNewline).split('\n').filter(Boolean)) {
+            let lastNewline = prefix.length - 1;
+            while (lastNewline >= 0 && prefix[lastNewline] !== newlineByte) {
+              lastNewline--;
+            }
+            if (lastNewline >= 0) {
+              const textPortion = new TextDecoder().decode(prefix.slice(0, lastNewline));
+              for (const line of textPortion.split('\n').filter(Boolean)) {
                 try { const d = JSON.parse(line); if (typeof d.p === 'number') compressDialogProgress = d.p; } catch {}
               }
             }
@@ -1368,17 +1430,19 @@
 
       let zipBlob: Blob;
       if (zipDataStart !== null) {
-        const totalLen = chunks.reduce((s, c) => s + c.length, 0);
-        const combined = new Uint8Array(totalLen);
-        let off = 0;
-        for (const c of chunks) { combined.set(c, off); off += c.length; }
-        zipBlob = new Blob([combined.slice(zipDataStart)], { type: 'application/zip' });
+        let skip = zipDataStart;
+        const parts: BlobPart[] = [];
+        for (const c of chunks) {
+          if (skip >= c.length) {
+            skip -= c.length;
+            continue;
+          }
+          parts.push(c.slice(skip));
+          skip = 0;
+        }
+        zipBlob = new Blob(parts as unknown as BlobPart[], { type: 'application/zip' });
       } else {
-        const totalLen = chunks.reduce((s, c) => s + c.length, 0);
-        const combined = new Uint8Array(totalLen);
-        let off = 0;
-        for (const c of chunks) { combined.set(c, off); off += c.length; }
-        zipBlob = new Blob([combined], { type: 'application/zip' });
+        zipBlob = new Blob(chunks as unknown as BlobPart[], { type: 'application/zip' });
       }
 
       compressDialogOpen = false;
@@ -2616,6 +2680,10 @@
     if (!authEnabled || existingSession) {
       const initialLocation = readInitialLocationState();
       ui.currentDir = initialLocation.directory;
+      ui.page = initialLocation.page;
+      ui.pageSize = initialLocation.pageSize;
+      nameFilter = initialLocation.filename;
+      pageSizeDisplay = String(initialLocation.pageSize);
       ui.requestedExtensions = new Set(initialLocation.selectedExtensions);
       ui.selectedExtensions = new Set(initialLocation.selectedExtensions);
       pendingInitialLightboxPath = initialLocation.filePath;
