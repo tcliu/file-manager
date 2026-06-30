@@ -27,7 +27,7 @@ export interface ArchiveContents {
   files: ArchiveFileEntry[];
 }
 
-function normalizeArchiveEntryPath(relativePath: string): string {
+export function normalizeArchiveEntryPath(relativePath: string): string {
   const normalizedPath = path.posix.normalize('/' + String(relativePath || '')).replace(/^\//, '');
   if (normalizedPath === '.' || normalizedPath === '') return '';
   if (normalizedPath.startsWith('..')) return '';
@@ -55,11 +55,11 @@ function createArchiveFileEntry(relativePath: string, size: number, modifiedAt: 
   };
 }
 
-function compareArchiveEntries(left: { path: string }, right: { path: string }): number {
+export function compareArchiveEntries(left: { path: string }, right: { path: string }): number {
   return left.path.localeCompare(right.path);
 }
 
-function formatZipTimestamp(date: Date): string {
+export function formatZipTimestamp(date: Date): string {
   const y = date.getFullYear();
   const M = String(date.getMonth() + 1).padStart(2, '0');
   const d = String(date.getDate()).padStart(2, '0');

@@ -41,7 +41,7 @@ const EXIF_TAG_NUMBERS: Record<string, number> = {
   TimeZoneOffset: 0x882a,
 };
 
-function extractExifTagValue(exifBuffer: Buffer, tagNames: string[]): string | null {
+export function extractExifTagValue(exifBuffer: Buffer, tagNames: string[]): string | null {
   if (!Buffer.isBuffer(exifBuffer) || tagNames.length === 0) {
     return null;
   }
@@ -133,7 +133,7 @@ function extractExifTagValue(exifBuffer: Buffer, tagNames: string[]): string | n
   return null;
 }
 
-function normalizeExifOffset(value: string | null | undefined): string {
+export function normalizeExifOffset(value: string | null | undefined): string {
   if (typeof value !== 'string') {
     return '';
   }
@@ -161,7 +161,7 @@ function normalizeExifOffset(value: string | null | undefined): string {
   return '';
 }
 
-function joinExifTimestampParts(timestamp: string | null, subsecond: string | null, offset: string | null): string | null {
+export function joinExifTimestampParts(timestamp: string | null, subsecond: string | null, offset: string | null): string | null {
   const trimmedTimestamp = typeof timestamp === 'string' ? timestamp.trim() : '';
 
   if (!trimmedTimestamp) {
@@ -173,7 +173,7 @@ function joinExifTimestampParts(timestamp: string | null, subsecond: string | nu
   return `${trimmedTimestamp}${trimmedSubsecond ? `.${trimmedSubsecond}` : ''}${trimmedOffset}`;
 }
 
-function parseExifTimestamp(value: string | null): Date | null {
+export function parseExifTimestamp(value: string | null): Date | null {
   if (typeof value !== 'string') {
     return null;
   }

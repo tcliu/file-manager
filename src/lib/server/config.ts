@@ -141,7 +141,7 @@ function loadEnvEntries(): Record<string, string> {
   return mergedEntries;
 }
 
-function parseEnvFile(content: string): Record<string, string> {
+export function parseEnvFile(content: string): Record<string, string> {
   const entries: Record<string, string> = {};
 
   for (const line of content.split(/\r?\n/)) {
@@ -157,7 +157,7 @@ function parseEnvFile(content: string): Record<string, string> {
   return entries;
 }
 
-function parseSessionExpiryMs(value: string | undefined): number {
+export function parseSessionExpiryMs(value: string | undefined): number {
   const sessionExpiryMs = Number(value);
   if (!Number.isInteger(sessionExpiryMs) || sessionExpiryMs <= 0) {
     return 3600000; // default 1 hour
@@ -165,7 +165,7 @@ function parseSessionExpiryMs(value: string | undefined): number {
   return sessionExpiryMs;
 }
 
-function parseFileSize(value: string | undefined): number | null {
+export function parseFileSize(value: string | undefined): number | null {
   if (!value) return null;
   const match = value.trim().match(/^(\d+(?:\.\d+)?)\s*(B|KB|MB|GB|TB)?$/i);
   if (!match) return null;
