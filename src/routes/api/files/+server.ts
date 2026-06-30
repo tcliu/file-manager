@@ -24,6 +24,7 @@ export const GET: RequestHandler = async ({ url, request }) => {
   const view = url.searchParams.get('view') === 'grid' ? 'grid' : 'list';
   const currentDir = normalizeRelativeDirectory(url.searchParams.get('dir') ?? '');
   let selectedExtensions = url.searchParams.getAll('ext').map((ext) => ext.toLowerCase());
+  const nameFilter = (url.searchParams.get('name_filter') ?? '').trim().toLowerCase();
 
   let listing = await listDirectoryContents(currentDir, selectedExtensions);
 
@@ -33,6 +34,14 @@ export const GET: RequestHandler = async ({ url, request }) => {
       selectedExtensions = [];
       listing = unfilteredListing;
     }
+  }
+
+  if (nameFilter) {
+    listing = {
+      ...listing,
+      directories: listing.directories.filter((d) => d.name.toLowerCase().includes(nameFilter)),
+      files: listing.files.filter((f) => f.name.toLowerCase().includes(nameFilter)),
+    };
   }
 
   const total = listing.files.length;

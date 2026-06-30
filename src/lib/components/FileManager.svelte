@@ -96,7 +96,7 @@
   let summaryText = $derived(
     [summaryFolderText, summaryFileText, totalSizeText]
       .filter((t) => t)
-      .join(" | ")
+      .join(" | "),
   );
   let selectedCountText = $state("0 selected");
   let statusText = $state("");
@@ -114,8 +114,23 @@
   ]);
   let availableExtensions: string[] = $state([]);
   let selectedExtensionsList: string[] = $state([]);
+  let nameFilter = $state("");
   let directories: { name: string; path: string }[] = $state([]);
   let files: any[] = $state([]);
+  const directoriesAllSelected = $derived(
+    directories.length > 0 &&
+      directories.every((d) => ui.selectedFiles.has(d.path)),
+  );
+  const directoriesSomeSelected = $derived(
+    !directoriesAllSelected &&
+      directories.some((d) => ui.selectedFiles.has(d.path)),
+  );
+  const filesAllSelected = $derived(
+    files.length > 0 && files.every((f) => ui.selectedFiles.has(f.path)),
+  );
+  const filesSomeSelected = $derived(
+    !filesAllSelected && files.some((f) => ui.selectedFiles.has(f.path)),
+  );
   let selectedFilePaths: string[] = $state([]);
   let hasSelection = $state(false);
   let zipPending = $state(false);
@@ -132,10 +147,14 @@
   let fileInputLastHandled = 0;
   let fileInputRef = $state<HTMLInputElement | null>(null);
   let pageSizeContainerRef = $state<HTMLDivElement | null>(null);
+  let foldersHeaderCheckboxRef = $state<HTMLInputElement | null>(null);
+  let filesHeaderCheckboxRef = $state<HTMLInputElement | null>(null);
   let uploadProgressLabel = $state("Uploading...");
   let uploadProgressValue = $state("0%");
   let uploadProgressWidth = $state("0%");
-  let videoPreparationByPath = $state<Record<string, VideoPreparationEntry>>({});
+  let videoPreparationByPath = $state<Record<string, VideoPreparationEntry>>(
+    {},
+  );
   let activeVideoPreparationPolls = new Set<string>();
   const sharedVideoPlaybackByPath = new Map<string, SharedVideoPlaybackEntry>();
   let sharedVideoSyncDepth = 0;
@@ -608,7 +627,7 @@
       return;
     }
     sessionStorage.removeItem(SESSION_STORAGE_KEY);
-    ui.selectedFiles.clear();
+    ui.selectedFiles = new Set();
     loginStatusText = message;
     showLogin();
   }
@@ -712,6 +731,7 @@
       page: String(ui.page),
       pageSize: String(ui.pageSize),
       view: viewMode,
+      name_filter: nameFilter,
     });
     for (const extension of [...ui.requestedExtensions].sort())
       query.append("ext", extension);
@@ -783,7 +803,20 @@
     if (!filePath) return;
     if (checked) ui.selectedFiles.add(filePath);
     else ui.selectedFiles.delete(filePath);
+    ui.selectedFiles = new Set(ui.selectedFiles);
     updateSelectedCount();
+  }
+
+  function toggleSelectAllDirectories(checked: boolean) {
+    for (const directory of directories) {
+      setFileSelection(directory.path, checked);
+    }
+  }
+
+  function toggleSelectAllFiles(checked: boolean) {
+    for (const file of files) {
+      setFileSelection(file.path, checked);
+    }
   }
 
   async function toggleExtensionSelection(extension: string) {
@@ -809,8 +842,9 @@
       return;
     }
     if (ui.currentDir !== relativePath) {
-      ui.selectedFiles.clear();
+      ui.selectedFiles = new Set();
       updateSelectedCount();
+      nameFilter = "";
     }
     ui.currentDir = relativePath;
     ui.page = 1;
@@ -856,7 +890,9 @@
   }
 
   function videoRequiresPreparation(extension: string): boolean {
-    return isVideoFile(extension) && String(extension || "").toLowerCase() !== "webm";
+    return (
+      isVideoFile(extension) && String(extension || "").toLowerCase() !== "webm"
+    );
   }
 
   function getVideoPreparationEntry(
@@ -1169,7 +1205,7 @@
     link.download = fileName;
     link.click();
     URL.revokeObjectURL(downloadUrl);
-    ui.selectedFiles.clear();
+    ui.selectedFiles = new Set();
     updateSelectedCount();
     statusText = "Downloaded zip: " + fileName;
   }
@@ -1273,7 +1309,7 @@
       statusText = data.error ?? "Failed to delete selected files";
       return;
     }
-    ui.selectedFiles.clear();
+    ui.selectedFiles = new Set();
     updateSelectedCount();
     deletePending = false;
     statusText = "Deleted " + data.deleted.length + " item(s)";
@@ -1393,9 +1429,9 @@
 
   function closeLightbox() {
     const closingLightboxPath = lightboxPathValue;
-    const lightboxVideo = getSharedVideoElementsByPath(closingLightboxPath).find(
-      (element) => getSharedVideoElementSurface(element) === "lightbox",
-    );
+    const lightboxVideo = getSharedVideoElementsByPath(
+      closingLightboxPath,
+    ).find((element) => getSharedVideoElementSurface(element) === "lightbox");
     const shouldRestoreGridVideo =
       lightboxMode === "video" && Boolean(closingLightboxPath && lightboxVideo);
 
@@ -1446,10 +1482,14 @@
         lightboxPathValue,
       ).find((element) => getSharedVideoElementSurface(element) === "lightbox");
 
-      storeSharedVideoPlayback(lightboxPathValue, currentLightboxVideo ?? null, {
-        preferredSurface: "grid",
-        shouldResume: false,
-      });
+      storeSharedVideoPlayback(
+        lightboxPathValue,
+        currentLightboxVideo ?? null,
+        {
+          preferredSurface: "grid",
+          shouldResume: false,
+        },
+      );
       pauseSharedVideoElement(currentLightboxVideo ?? null);
     }
 
@@ -1516,7 +1556,9 @@
     }
   }
 
-  function getSharedVideoPlaybackEntry(filePath: string): SharedVideoPlaybackEntry {
+  function getSharedVideoPlaybackEntry(
+    filePath: string,
+  ): SharedVideoPlaybackEntry {
     const normalizedPath = String(filePath || "");
 
     if (!normalizedPath) {
@@ -1564,7 +1606,8 @@
     }
 
     const currentTime =
-      element instanceof HTMLVideoElement && Number.isFinite(element.currentTime)
+      element instanceof HTMLVideoElement &&
+      Number.isFinite(element.currentTime)
         ? Math.max(0, element.currentTime)
         : undefined;
 
@@ -1617,7 +1660,9 @@
     return surface === "grid" || surface === "lightbox" ? surface : "";
   }
 
-  function isSharedVideoPlaybackActive(element: HTMLVideoElement | null): boolean {
+  function isSharedVideoPlaybackActive(
+    element: HTMLVideoElement | null,
+  ): boolean {
     return !!element && !element.paused && !element.ended;
   }
 
@@ -1642,7 +1687,9 @@
     return (
       matchingElements.find(
         (element) => getSharedVideoElementSurface(element) === "lightbox",
-      ) ?? matchingElements[0] ?? null
+      ) ??
+      matchingElements[0] ??
+      null
     );
   }
 
@@ -1658,7 +1705,10 @@
       return Math.max(0, currentTime);
     }
 
-    return Math.min(Math.max(0, currentTime), Math.max(0, element.duration - 0.25));
+    return Math.min(
+      Math.max(0, currentTime),
+      Math.max(0, element.duration - 0.25),
+    );
   }
 
   function pauseSharedVideoElement(element: HTMLVideoElement | null) {
@@ -1685,9 +1735,11 @@
         continue;
       }
 
-      storeSharedVideoPlayback(filePath, element, filePath === activeFilePath
-        ? {}
-        : { shouldResume: false });
+      storeSharedVideoPlayback(
+        filePath,
+        element,
+        filePath === activeFilePath ? {} : { shouldResume: false },
+      );
       pauseSharedVideoElement(element);
     }
   }
@@ -1939,7 +1991,8 @@
       await loadFiles();
       if (ui.visibleMediaFiles.length > 0) {
         ui.lightboxIndex = ui.visibleMediaFiles.length - 1;
-        ui.lightboxPath = ui.visibleMediaFiles[ui.visibleMediaFiles.length - 1].path;
+        ui.lightboxPath =
+          ui.visibleMediaFiles[ui.visibleMediaFiles.length - 1].path;
         syncLightboxState();
       }
     }
@@ -2261,7 +2314,11 @@
     event.preventDefault();
     if (lightboxDragging) {
       const backdrop = document.getElementById("lightboxBackdrop");
-      if (backdrop && ui.lightboxPanPointerId !== null && backdrop.hasPointerCapture(ui.lightboxPanPointerId)) {
+      if (
+        backdrop &&
+        ui.lightboxPanPointerId !== null &&
+        backdrop.hasPointerCapture(ui.lightboxPanPointerId)
+      ) {
         backdrop.releasePointerCapture(ui.lightboxPanPointerId);
       }
       ui.lightboxPanPointerId = null;
@@ -2288,13 +2345,13 @@
     event.preventDefault();
     const t0 = event.touches[0];
     const t1 = event.touches[1];
-    const dist = Math.hypot(
-      t1.clientX - t0.clientX,
-      t1.clientY - t0.clientY,
-    );
+    const dist = Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY);
     const scale = dist / ui.lightboxPinchStartDist;
     let targetPercent = ui.lightboxPinchStartZoomPercent * scale;
-    targetPercent = Math.max(ui.lightboxPinchFitPercent, Math.min(300, targetPercent));
+    targetPercent = Math.max(
+      ui.lightboxPinchFitPercent,
+      Math.min(300, targetPercent),
+    );
     ui.lightboxPinchLastPercent = targetPercent;
     const naturalW = ui.lightboxImageNaturalWidth;
     const naturalH = ui.lightboxImageNaturalHeight;
@@ -2308,12 +2365,14 @@
     };
     const backdrop = document.getElementById("lightboxBackdrop");
     if (backdrop) {
-      const midOffsetX = ui.lightboxPinchMidX - backdrop.getBoundingClientRect().left;
-      const midOffsetY = ui.lightboxPinchMidY - backdrop.getBoundingClientRect().top;
+      const midOffsetX =
+        ui.lightboxPinchMidX - backdrop.getBoundingClientRect().left;
+      const midOffsetY =
+        ui.lightboxPinchMidY - backdrop.getBoundingClientRect().top;
       const prevCenterX = backdrop.scrollLeft + midOffsetX;
       const prevCenterY = backdrop.scrollTop + midOffsetY;
-      const newScrollX = (prevCenterX * scale) - midOffsetX;
-      const newScrollY = (prevCenterY * scale) - midOffsetY;
+      const newScrollX = prevCenterX * scale - midOffsetX;
+      const newScrollY = prevCenterY * scale - midOffsetY;
       backdrop.scrollLeft = Math.max(0, newScrollX);
       backdrop.scrollTop = Math.max(0, newScrollY);
     }
@@ -2418,6 +2477,37 @@
       ensureVideoPreparation(file);
     }
   });
+
+  $effect(() => {
+    if (foldersHeaderCheckboxRef) {
+      foldersHeaderCheckboxRef.indeterminate = directoriesSomeSelected;
+    }
+  });
+
+  $effect(() => {
+    if (filesHeaderCheckboxRef) {
+      filesHeaderCheckboxRef.indeterminate = filesSomeSelected;
+    }
+  });
+
+  let nameFilterTimer: ReturnType<typeof setTimeout> | null = null;
+  let nameFilterReady = false;
+
+  $effect(() => {
+    const filter = nameFilter;
+    if (!nameFilterReady) {
+      nameFilterReady = true;
+      return;
+    }
+    if (nameFilterTimer) clearTimeout(nameFilterTimer);
+    nameFilterTimer = setTimeout(() => {
+      ui.page = 1;
+      loadFiles();
+    }, 300);
+    return () => {
+      if (nameFilterTimer) clearTimeout(nameFilterTimer);
+    };
+  });
 </script>
 
 <svelte:window onkeydown={handleKeydown} />
@@ -2453,7 +2543,7 @@
           {sessionInfoText}
         </div>
         {#if summaryText}
-          <div class="fm-pill">
+          <div class="text-sm text-slate-300">
             {summaryText}
           </div>
         {/if}
@@ -2471,7 +2561,7 @@
                 clip-rule="evenodd"
               /></svg
             >
-            {@render tooltip('Log out')}
+            {@render tooltip("Log out")}
           </button>
         {/if}
       </div>
@@ -2480,21 +2570,36 @@
     <section
       class="rounded-2xl border border-slate-800 bg-slate-900/80 p-5 shadow-2xl shadow-slate-950/40"
     >
-      <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 sm:gap-y-0.5">
+      <div
+        class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 sm:gap-y-0.5"
+      >
         <div class="flex flex-wrap items-center gap-2 order-1 sm:order-none">
           {#each breadcrumbs as item, index}
-            <button
-              type="button"
-              class="rounded-full border border-slate-700 bg-slate-950 px-3 py-1 text-xs font-medium text-slate-200 transition hover:border-cyan-500 hover:text-cyan-300"
-              onclick={() => navigateToDirectory(item.path)}
-              >{item.label}</button
-            >
-            {#if index < breadcrumbs.length - 1 && item.label !== "/"}<span
-                class="text-slate-600">/</span
-              >{/if}
+            {#if index === breadcrumbs.length - 1}
+              <span class="text-xs font-medium text-slate-200"
+                >{item.label}</span
+              >
+            {:else}
+              <button
+                type="button"
+                class="rounded-full border border-slate-700 bg-slate-950 px-3 py-1 text-xs font-medium text-slate-200 transition hover:border-cyan-500 hover:text-cyan-300"
+                onclick={() => navigateToDirectory(item.path)}
+                >{item.label}</button
+              >
+              {#if item.label !== "/"}<span class="text-slate-600">/</span>{/if}
+            {/if}
           {/each}
+          <span class="text-slate-600">/</span>
+          <input
+            type="text"
+            bind:value={nameFilter}
+            placeholder="filter..."
+            class="w-28 rounded-lg border border-slate-700 bg-slate-950 px-3 py-1 text-xs text-slate-200 placeholder-slate-500 outline-none transition focus:border-cyan-500 focus:text-cyan-300"
+          />
         </div>
-        <div class="flex flex-wrap items-center gap-3 text-sm text-slate-400 order-3 sm:order-none">
+        <div
+          class="flex flex-wrap items-center gap-3 text-sm text-slate-400 order-3 sm:order-none"
+        >
           <div
             class="inline-flex rounded-xl border border-slate-700 bg-slate-950 p-1"
           >
@@ -2541,13 +2646,13 @@
           </div>
           <span>{selectedCountText}</span>
         </div>
-        <div class="flex flex-wrap gap-2 basis-full grow-0 shrink-0 order-2 sm:order-none">
+        <div
+          class="flex flex-wrap gap-2 basis-full grow-0 shrink-0 order-2 sm:order-none"
+        >
           {#each availableExtensions as extension}
             <button
               type="button"
-              class="fm-ext-btn {selectedExtensionsList.includes(
-                extension,
-              )
+              class="fm-ext-btn {selectedExtensionsList.includes(extension)
                 ? 'fm-ext-btn-on'
                 : 'fm-ext-btn-off'}"
               onclick={() => toggleExtensionSelection(extension)}
@@ -2596,7 +2701,7 @@
                   d="M2.75 5A2.25 2.25 0 0 1 5 2.75h3.19c.497 0 .974.198 1.326.549l1.185 1.186c.07.07.166.109.265.109H15A2.25 2.25 0 0 1 17.25 6.75v7.5A2.25 2.25 0 0 1 15 16.5H5a2.25 2.25 0 0 1-2.25-2.25V5Zm9 2.25a.75.75 0 0 0-1.5 0v1.5h-1.5a.75.75 0 0 0 0 1.5h1.5v1.5a.75.75 0 0 0 1.5 0v-1.5h1.5a.75.75 0 0 0 0-1.5h-1.5v-1.5Z"
                 /></svg
               >
-              {@render tooltip('Create folder')}
+              {@render tooltip("Create folder")}
             </button>
             <button
               aria-label="Upload files"
@@ -2614,7 +2719,7 @@
                   clip-rule="evenodd"
                 /></svg
               >
-              {@render tooltip('Upload files')}
+              {@render tooltip("Upload files")}
             </button>
             <button
               aria-label="Download selected as zip"
@@ -2628,7 +2733,7 @@
                   d="M7 2.75A1.75 1.75 0 0 0 5.25 4.5v11A1.75 1.75 0 0 0 7 17.25h6A1.75 1.75 0 0 0 14.75 15.5v-7a.75.75 0 0 0-.22-.53l-3-3A.75.75 0 0 0 11 4.75H7Z"
                 /></svg
               >
-              {@render tooltip('Download selected as zip')}
+              {@render tooltip("Download selected as zip")}
             </button>
             <button
               aria-label="Delete selected files"
@@ -2644,7 +2749,7 @@
                   clip-rule="evenodd"
                 /></svg
               >
-              {@render tooltip('Delete selected items')}
+              {@render tooltip("Delete selected items")}
             </button>
           </div>
           {#key fileInputVersion}
@@ -2680,16 +2785,18 @@
           <div class="relative h-24 w-24">
             <span
               class="absolute left-0 top-0 text-4xl opacity-60"
-              style="animation: float1 2s ease-in-out infinite"
-            >&#128193;</span>
+              style="animation: float1 2s ease-in-out infinite">&#128193;</span
+            >
             <span
               class="absolute right-0 top-4 text-3xl opacity-40"
               style="animation: float2 2.5s ease-in-out infinite 0.3s"
-            >&#128196;</span>
+              >&#128196;</span
+            >
             <span
               class="absolute bottom-0 left-4 text-2xl opacity-30"
               style="animation: float3 3s ease-in-out infinite 0.6s"
-            >&#128194;</span>
+              >&#128194;</span
+            >
           </div>
         </div>
       {:else if !loading && directories.length === 0 && files.length === 0}
@@ -2699,70 +2806,115 @@
       {/if}
 
       {#if viewMode === "list" && (directories.length || files.length)}
-        <div class="mt-6 space-y-3">
-          {#each directories as directory (directory.path)}
-            <div
-              class="flex items-center gap-3 rounded-md border border-slate-800 bg-slate-900/50 px-4 py-3 transition hover:border-cyan-500 hover:bg-slate-900"
-            >
-              <input
-                class="fm-check"
-                type="checkbox"
-                checked={ui.selectedFiles.has(directory.path)}
-                onchange={(e) =>
-                  setFileSelection(directory.path, e.currentTarget.checked)}
-              />
-              <button
-                type="button"
-                class="flex min-w-0 flex-1 items-center justify-between text-left"
-                onclick={() => navigateToDirectory(directory.path)}
-              >
-                <span class="min-w-0 truncate font-semibold text-cyan-300"
-                  >{directory.name}/</span
+        <div class="mt-6 space-y-6">
+          {#if directories.length}
+            <div>
+              <div class="mb-2 flex items-center gap-1">
+                <input
+                  bind:this={foldersHeaderCheckboxRef}
+                  class="fm-check"
+                  type="checkbox"
+                  checked={directoriesAllSelected}
+                  onchange={(e) =>
+                    toggleSelectAllDirectories(e.currentTarget.checked)}
+                />
+                <p
+                  class="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500"
                 >
-                <span class="text-xs text-slate-500">Folder</span>
-              </button>
+                  Folders
+                </p>
+              </div>
+              <div class="space-y-3">
+                {#each directories as directory (directory.path)}
+                  <div
+                    class="flex items-center gap-3 rounded-md border border-slate-800 bg-slate-900/50 px-4 py-3 transition hover:border-cyan-500 hover:bg-slate-900"
+                  >
+                    <input
+                      class="fm-check"
+                      type="checkbox"
+                      checked={ui.selectedFiles.has(directory.path)}
+                      onchange={(e) =>
+                        setFileSelection(
+                          directory.path,
+                          e.currentTarget.checked,
+                        )}
+                    />
+                    <button
+                      type="button"
+                      class="flex min-w-0 flex-1 items-center justify-between text-left"
+                      onclick={() => navigateToDirectory(directory.path)}
+                    >
+                      <span class="min-w-0 truncate font-semibold text-cyan-300"
+                        >{directory.name}/</span
+                      >
+                      <span class="text-xs text-slate-500">Folder</span>
+                    </button>
+                  </div>
+                {/each}
+              </div>
             </div>
-          {/each}
+          {/if}
 
-          {#each files as file (file.path)}
-            <label
-              class="flex flex-wrap items-center gap-3 rounded-md border border-slate-800 bg-slate-900/30 px-4 py-3 hover:bg-slate-900/60"
-            >
-              <input
-                class="fm-check"
-                type="checkbox"
-                checked={ui.selectedFiles.has(file.path)}
-                onchange={(e) =>
-                  setFileSelection(file.path, e.currentTarget.checked)}
-              />
-              {#if isZipFile(file.extension)}
-                <button
-                  type="button"
-                  class="min-w-0 flex-1 truncate text-left text-slate-100 underline-offset-4 transition hover:text-cyan-300 hover:underline"
-                  onclick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    openLightbox(file.path);
-                  }}>{file.name}</button
+          {#if files.length}
+            <div>
+              <div class="mb-2 flex items-center gap-2">
+                <input
+                  bind:this={filesHeaderCheckboxRef}
+                  class="fm-check"
+                  type="checkbox"
+                  checked={filesAllSelected}
+                  onchange={(e) =>
+                    toggleSelectAllFiles(e.currentTarget.checked)}
+                />
+                <p
+                  class="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500"
                 >
-              {:else}
-                <a
-                  class="min-w-0 flex-1 truncate text-slate-100 underline-offset-4 hover:text-cyan-300 hover:underline"
-                  href={getDownloadUrl(file.path)}>{file.name}</a
-                >
-              {/if}
-              <span
-                class="rounded-full border border-slate-700 px-2 py-1 text-xs text-slate-400"
-                >.{file.extension || "none"}</span
-              >
-              <span class="text-xs text-slate-400"
-                >{formatBytes(file.size)}</span
-              >
-              <span class="text-xs text-slate-500"
-                >{formatDateTime(file.modifiedAt)}</span
-              >
-            </label>
-          {/each}
+                  Files
+                </p>
+              </div>
+              <div class="space-y-3">
+                {#each files as file (file.path)}
+                  <label
+                    class="flex flex-wrap items-center gap-3 rounded-md border border-slate-800 bg-slate-900/30 px-4 py-3 hover:bg-slate-900/60"
+                  >
+                    <input
+                      class="fm-check"
+                      type="checkbox"
+                      checked={ui.selectedFiles.has(file.path)}
+                      onchange={(e) =>
+                        setFileSelection(file.path, e.currentTarget.checked)}
+                    />
+                    {#if isZipFile(file.extension)}
+                      <button
+                        type="button"
+                        class="min-w-0 flex-1 truncate text-left text-slate-100 underline-offset-4 transition hover:text-cyan-300 hover:underline"
+                        onclick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          openLightbox(file.path);
+                        }}>{file.name}</button
+                      >
+                    {:else}
+                      <a
+                        class="min-w-0 flex-1 truncate text-slate-100 underline-offset-4 hover:text-cyan-300 hover:underline"
+                        href={getDownloadUrl(file.path)}>{file.name}</a
+                      >
+                    {/if}
+                    <span
+                      class="rounded-full border border-slate-700 px-2 py-1 text-xs text-slate-400"
+                      >.{file.extension || "none"}</span
+                    >
+                    <span class="text-xs text-slate-400"
+                      >{formatBytes(file.size)}</span
+                    >
+                    <span class="text-xs text-slate-500"
+                      >{formatDateTime(file.modifiedAt)}</span
+                    >
+                  </label>
+                {/each}
+              </div>
+            </div>
+          {/if}
         </div>
       {/if}
 
@@ -2770,11 +2922,21 @@
         <div class="mt-6 space-y-6">
           {#if directories.length}
             <div>
-              <p
-                class="mb-3 text-xs font-semibold uppercase tracking-[0.24em] text-slate-500"
-              >
-                Folders
-              </p>
+              <div class="mb-3 flex items-center gap-2">
+                <input
+                  bind:this={foldersHeaderCheckboxRef}
+                  class="fm-check"
+                  type="checkbox"
+                  checked={directoriesAllSelected}
+                  onchange={(e) =>
+                    toggleSelectAllDirectories(e.currentTarget.checked)}
+                />
+                <p
+                  class="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500"
+                >
+                  Folders
+                </p>
+              </div>
               <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                 {#each directories as directory (directory.path)}
                   <div class="relative">
@@ -2798,7 +2960,6 @@
                         <p class="truncate font-semibold text-cyan-300">
                           {directory.name}
                         </p>
-                        <p class="mt-1 text-xs text-slate-500">Open folder</p>
                       </div>
                     </button>
                   </div>
@@ -2809,11 +2970,21 @@
 
           {#if files.length}
             <div>
-              <p
-                class="mb-3 text-xs font-semibold uppercase tracking-[0.24em] text-slate-500"
-              >
-                Files
-              </p>
+              <div class="mb-3 flex items-center gap-2">
+                <input
+                  bind:this={filesHeaderCheckboxRef}
+                  class="fm-check"
+                  type="checkbox"
+                  checked={filesAllSelected}
+                  onchange={(e) =>
+                    toggleSelectAllFiles(e.currentTarget.checked)}
+                />
+                <p
+                  class="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500"
+                >
+                  Files
+                </p>
+              </div>
               <div
                 class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4"
               >
@@ -3024,7 +3195,7 @@
               clip-rule="evenodd"
             /></svg
           >
-          {@render tooltip('Previous page')}
+          {@render tooltip("Previous page")}
         </button>
         <span>Page</span>
         <input
@@ -3066,7 +3237,7 @@
               clip-rule="evenodd"
             /></svg
           >
-          {@render tooltip('Next page')}
+          {@render tooltip("Next page")}
         </button>
         <div class="flex items-center gap-2">
           <span>Page size</span>
@@ -3171,11 +3342,7 @@
     onVideoTimeUpdate={(event) =>
       handleSharedVideoTimeUpdate(lightboxPathValue, event.currentTarget)}
     onVideoPlay={(event) =>
-      handleSharedVideoPlay(
-        lightboxPathValue,
-        "lightbox",
-        event.currentTarget,
-      )}
+      handleSharedVideoPlay(lightboxPathValue, "lightbox", event.currentTarget)}
     onVideoPause={(event) =>
       handleSharedVideoPause(
         lightboxPathValue,
