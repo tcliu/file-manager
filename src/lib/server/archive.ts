@@ -206,7 +206,7 @@ export function ensureZipArchiveEntryReadable(filePath: string, entryPath: strin
   });
 }
 
-export async function createZipArchive(cwd: string, archivePath: string, selectedItems: string[]): Promise<void> {
+export async function createZipArchive(cwd: string, archivePath: string, selectedItems: string[], folderName?: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const output = createWriteStream(archivePath);
     const archive = archiver('zip', { zlib: { level: 9 } });
@@ -219,10 +219,11 @@ export async function createZipArchive(cwd: string, archivePath: string, selecte
       for (const item of selectedItems) {
         const sourcePath = path.join(cwd, item);
         const itemStat = await stat(sourcePath);
+        const destPath = folderName ? folderName + '/' + item : item;
         if (itemStat.isDirectory()) {
-          archive.directory(sourcePath, item);
+          archive.directory(sourcePath, destPath);
         } else {
-          archive.file(sourcePath, { name: item });
+          archive.file(sourcePath, { name: destPath });
         }
       }
       await archive.finalize();

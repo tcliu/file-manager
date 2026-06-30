@@ -7,6 +7,7 @@
 <FileManager
   auth={data.auth}
   uploadDir={data.uploadDir}
+  maxZipSize={data.maxZipSize}
   imageExtensions={data.imageExtensions}
   videoExtensions={data.videoExtensions}
   thumbnailSupportedExtensions={data.thumbnailSupportedExtensions}

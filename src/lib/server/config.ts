@@ -19,6 +19,7 @@ export interface AuthConfig {
 export interface AppConfig {
   auth: AuthConfig;
   uploadDir: string;
+  maxZipSize: number;
 }
 
 let cachedConfig: AppConfig | null = null;
@@ -63,10 +64,12 @@ function loadAppConfigSync(): AppConfig {
   }
 
   const uploadDir = normalizeConfiguredDir(entries['upload-dir'], DEFAULT_UPLOAD_DIR, rootDirs, rootDirs.length > 1 ? rootDirs[0] : rootDir);
+  const maxZipSize = parseFileSize(entries['max-zip-size']) ?? 1073741824;
 
   return {
     auth: { enabled: password !== '', sessionExpiryMs, username, password },
     uploadDir,
+    maxZipSize,
   };
 }
 
@@ -154,5 +157,16 @@ function parseSessionExpiryMs(value: string | undefined): number {
     return 3600000; // default 1 hour
   }
   return sessionExpiryMs;
+}
+
+function parseFileSize(value: string | undefined): number | null {
+  if (!value) return null;
+  const match = value.trim().match(/^(\d+(?:\.\d+)?)\s*(B|KB|MB|GB|TB)?$/i);
+  if (!match) return null;
+  const num = Number(match[1]);
+  if (!Number.isFinite(num) || num <= 0) return null;
+  const unit = (match[2] || 'B').toUpperCase();
+  const multipliers: Record<string, number> = { B: 1, KB: 1000, MB: 1000 ** 2, GB: 1000 ** 3, TB: 1000 ** 4 };
+  return Math.round(num * (multipliers[unit] ?? 1));
 }
 

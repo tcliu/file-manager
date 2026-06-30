@@ -12,6 +12,7 @@ export const load: PageServerLoad = async () => {
       username: appConfig.auth.username,
     },
     uploadDir: appConfig.uploadDir,
+    maxZipSize: appConfig.maxZipSize,
     imageExtensions: [...IMAGE_EXTENSIONS],
     videoExtensions: [...VIDEO_EXTENSIONS],
     thumbnailSupportedExtensions: [...IMAGE_EXTENSIONS].filter(ext => !THUMBNAIL_UNSUPPORTED_EXTENSIONS.includes(ext)),

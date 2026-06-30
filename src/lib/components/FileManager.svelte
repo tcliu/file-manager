@@ -3,11 +3,13 @@
   import Lightbox from "./Lightbox.svelte";
   import ConfirmDialog from "./ConfirmDialog.svelte";
   import CreateFolderDialog from "./CreateFolderDialog.svelte";
+  import CompressDialog from "./CompressDialog.svelte";
   import UploadConflictDialog from "./UploadConflictDialog.svelte";
 
   interface Props {
     auth: { enabled: boolean; sessionExpiryMs: number; username: string };
     uploadDir: string;
+    maxZipSize: number;
     imageExtensions: string[];
     videoExtensions: string[];
     thumbnailSupportedExtensions: string[];
@@ -64,6 +66,7 @@
   let {
     auth,
     uploadDir,
+    maxZipSize,
     imageExtensions,
     videoExtensions,
     thumbnailSupportedExtensions,
@@ -180,6 +183,15 @@
   let createFolderDialogName = $state("");
   let createFolderDialogErrorText = $state("");
 
+  let compressDialogOpen = $state(false);
+  let compressDialogFileName = $state("download.zip");
+  let compressDialogErrorText = $state("");
+  let compressDialogTotalSize = $state(0);
+  let compressDialogResizeWidth = $state(0);
+  let compressDialogResizeHeight = $state(0);
+  let compressDialogResizeQuality = $state(100);
+  let compressDialogImageFormat = $state("jpeg");
+
   let lightboxOpen = $state(false);
   let lightboxMode = $state("");
   let lightboxPathValue = $state("");
@@ -259,6 +271,47 @@
     lightboxPinchLastPercent: 0,
     lightboxPinchFitPercent: 0,
   });
+
+  const selectedTotalSize = $derived(
+    [...ui.selectedFiles].reduce((sum, path) => {
+      const f = files.find((f: any) => f.path === path);
+      return sum + (f?.size ?? 0);
+    }, 0),
+  );
+  const zipSizeExceeded = $derived(selectedTotalSize > maxZipSize);
+  const commonImageInfo = $derived.by(() => {
+    const imageFiles = [...ui.selectedFiles]
+      .map((path) => files.find((f: any) => f.path === path))
+      .filter((f): f is any => f && isImageFile(f.extension));
+    if (imageFiles.length === 0) return null;
+    const firstW = Number(imageFiles[0].width);
+    const firstH = Number(imageFiles[0].height);
+    if (!Number.isFinite(firstW) || !Number.isFinite(firstH) || firstW <= 0 || firstH <= 0) return null;
+    const allSame = imageFiles.every(
+      (f) => Number(f.width) === firstW && Number(f.height) === firstH,
+    );
+    if (!allSame) return null;
+    return { width: firstW, height: firstH };
+  });
+  const commonImageExtension = $derived.by(() => {
+    const imageExts = [...ui.selectedFiles]
+      .map((path) => files.find((f: any) => f.path === path))
+      .filter((f): f is any => f && isImageFile(f.extension))
+      .map((f) => f.extension.toLowerCase());
+    if (imageExts.length === 0) return null;
+    const first = imageExts[0];
+    return imageExts.every((e) => e === first) ? first : null;
+  });
+  const selectedDirCount = $derived(
+    [...ui.selectedFiles].filter((path) =>
+      directories.some((d) => d.path === path),
+    ).length,
+  );
+  const selectedFileCount = $derived(
+    [...ui.selectedFiles].filter((path) =>
+      files.some((f: any) => f.path === path),
+    ).length,
+  );
 
   function isWithinConfiguredUploadDir(
     currentDir: string,
@@ -1172,7 +1225,7 @@
     await uploadFiles(await getDropUploadCandidates(event.dataTransfer));
   }
 
-  async function createSelectionZip() {
+  async function openCompressDialog() {
     if (!readSession()) {
       forceLogout("Session expired: please log in again");
       return;
@@ -1181,24 +1234,96 @@
       statusText = "Select at least one file first";
       return;
     }
+    if (zipSizeExceeded) return;
+    const selectedPaths = [...ui.selectedFiles];
+    if (selectedPaths.length === 1) {
+      const singlePath = selectedPaths[0];
+      const item = [...directories, ...files].find(
+        (i: any) => i.path === singlePath,
+      );
+      const baseName = item?.name || "download";
+      const nameWithoutExt = baseName.replace(/\.[^/.]+$/, "");
+      compressDialogFileName = nameWithoutExt + ".zip";
+    } else {
+      const now = new Date();
+      const y = String(now.getFullYear());
+      const mo = String(now.getMonth() + 1).padStart(2, "0");
+      const d = String(now.getDate()).padStart(2, "0");
+      const h = String(now.getHours()).padStart(2, "0");
+      const mi = String(now.getMinutes()).padStart(2, "0");
+      const s = String(now.getSeconds()).padStart(2, "0");
+      compressDialogFileName = `${y}${mo}${d}${h}${mi}${s}.zip`;
+    }
+    compressDialogErrorText = "";
+    compressDialogTotalSize = selectedTotalSize;
+    compressDialogImageFormat = commonImageExtension === "png" ? "png" : "jpeg";
+    if ([...ui.selectedFiles].some((p) => directories.some((d) => d.path === p))) {
+      try {
+        const query = new URLSearchParams({ dir: ui.currentDir });
+        const response = await fetch("/api/selection-size?" + query.toString(), {
+          method: "POST",
+          headers: { "content-type": "application/json", ...getAuthHeaders() },
+          body: JSON.stringify({ items: [...ui.selectedFiles] }),
+        });
+        const data = await response.json();
+        if (typeof data.totalSize === "number") {
+          compressDialogTotalSize = data.totalSize;
+        }
+      } catch {}
+    }
+    if (compressDialogTotalSize > maxZipSize) return;
+    compressDialogOpen = true;
+  }
+
+  function closeCompressDialog() {
+    if (zipPending) return;
+    compressDialogOpen = false;
+    compressDialogFileName = "download.zip";
+    compressDialogErrorText = "";
+  }
+
+  async function handleCompress() {
+    if (!readSession()) {
+      forceLogout("Session expired: please log in again");
+      return;
+    }
+    if (!ui.selectedFiles.size) {
+      statusText = "Select at least one file first";
+      return;
+    }
+    const fileName = compressDialogFileName.trim() || "download.zip";
+    const folderName = ui.selectedFiles.size > 1
+      ? fileName.replace(/\.zip$/i, "")
+      : undefined;
     zipPending = true;
-    statusText = "Creating zip from selected items...";
+    compressDialogErrorText = "";
     const query = new URLSearchParams({ dir: ui.currentDir });
+    const body: Record<string, any> = {
+      items: [...ui.selectedFiles],
+      filename: fileName,
+      folderName,
+    };
+    if (commonImageInfo) {
+      body.resizeWidth = compressDialogResizeWidth;
+      body.resizeHeight = compressDialogResizeHeight;
+      body.resizeQuality = compressDialogResizeQuality;
+      body.imageFormat = compressDialogImageFormat;
+    }
     const response = await fetch("/api/zip-selection?" + query.toString(), {
       method: "POST",
       headers: { "content-type": "application/json", ...getAuthHeaders() },
-      body: JSON.stringify({ items: [...ui.selectedFiles] }),
+      body: JSON.stringify(body),
     });
     zipPending = false;
     if (!response.ok) {
       const data = await response.json().catch(() => ({}));
-      statusText = data.error ?? "Failed to create zip file";
+      compressDialogErrorText = data.error ?? "Failed to create zip file";
       return;
     }
+    compressDialogOpen = false;
+    compressDialogFileName = "download.zip";
+    compressDialogErrorText = "";
     const blob = await response.blob();
-    const contentDisposition = response.headers.get("content-disposition");
-    const match = contentDisposition?.match(/filename="([^"]+)"/i);
-    const fileName = match ? match[1] : "download.zip";
     const downloadUrl = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = downloadUrl;
@@ -2690,20 +2815,6 @@
           </p>
           <div class="mt-5 flex flex-wrap items-center justify-center gap-3">
             <button
-              aria-label="Create folder"
-              onclick={openCreateFolderDialog}
-              disabled={uploadBusy || createFolderPending}
-              type="button"
-              class="group relative inline-flex h-12 w-12 items-center justify-center rounded-lg border border-emerald-800 bg-emerald-950/40 text-emerald-200 transition hover:border-emerald-500 hover:text-emerald-100 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              <svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"
-                ><path
-                  d="M2.75 5A2.25 2.25 0 0 1 5 2.75h3.19c.497 0 .974.198 1.326.549l1.185 1.186c.07.07.166.109.265.109H15A2.25 2.25 0 0 1 17.25 6.75v7.5A2.25 2.25 0 0 1 15 16.5H5a2.25 2.25 0 0 1-2.25-2.25V5Zm9 2.25a.75.75 0 0 0-1.5 0v1.5h-1.5a.75.75 0 0 0 0 1.5h1.5v1.5a.75.75 0 0 0 1.5 0v-1.5h1.5a.75.75 0 0 0 0-1.5h-1.5v-1.5Z"
-                /></svg
-              >
-              {@render tooltip("Create folder")}
-            </button>
-            <button
               aria-label="Upload files"
               onclick={() => {
                 if (!uploadBusy) fileInputOpenToken += 1;
@@ -2720,36 +2831,6 @@
                 /></svg
               >
               {@render tooltip("Upload files")}
-            </button>
-            <button
-              aria-label="Download selected as zip"
-              onclick={createSelectionZip}
-              disabled={!hasSelection || zipPending}
-              type="button"
-              class="group relative inline-flex h-12 w-12 items-center justify-center rounded-lg border border-slate-700 bg-slate-900 text-slate-100 transition hover:border-cyan-500 hover:text-cyan-300 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              <svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"
-                ><path
-                  d="M7 2.75A1.75 1.75 0 0 0 5.25 4.5v11A1.75 1.75 0 0 0 7 17.25h6A1.75 1.75 0 0 0 14.75 15.5v-7a.75.75 0 0 0-.22-.53l-3-3A.75.75 0 0 0 11 4.75H7Z"
-                /></svg
-              >
-              {@render tooltip("Download selected as zip")}
-            </button>
-            <button
-              aria-label="Delete selected files"
-              onclick={deleteSelectedFiles}
-              disabled={!hasSelection || deletePending}
-              type="button"
-              class="group relative inline-flex h-12 w-12 items-center justify-center rounded-lg border border-rose-900 bg-rose-950/40 text-rose-200 transition hover:border-rose-500 hover:text-rose-100 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              <svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"
-                ><path
-                  fill-rule="evenodd"
-                  d="M8.75 2.75a1.75 1.75 0 0 0-1.67 1.23L6.89 4.5H4.5a.75.75 0 0 0 0 1.5h.44l.83 9.12A2.25 2.25 0 0 0 8.01 17.25h3.98a2.25 2.25 0 0 0 2.24-2.13l.83-9.12h.44a.75.75 0 0 0 0-1.5h-2.39l-.19-.52a1.75 1.75 0 0 0-1.67-1.23h-2.5Z"
-                  clip-rule="evenodd"
-                /></svg
-              >
-              {@render tooltip("Delete selected items")}
             </button>
           </div>
           {#key fileInputVersion}
@@ -2776,6 +2857,64 @@
                 ></div>
               </div>
             </div>
+          {/if}
+        </div>
+      {/if}
+
+      {#if directories.length || files.length}
+        <div class="mt-3 flex items-center gap-2">
+          <button
+            aria-label="Zip selected items"
+            onclick={openCompressDialog}
+            disabled={!hasSelection || zipPending || zipSizeExceeded}
+            type="button"
+            class="group relative inline-flex h-9 items-center gap-1.5 rounded-lg border border-cyan-700 bg-cyan-950/30 px-3 text-xs font-medium text-cyan-200 transition hover:border-cyan-500 hover:text-cyan-100 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"
+              ><path
+                d="M7 2.75A1.75 1.75 0 0 0 5.25 4.5v11A1.75 1.75 0 0 0 7 17.25h6A1.75 1.75 0 0 0 14.75 15.5v-7a.75.75 0 0 0-.22-.53l-3-3A.75.75 0 0 0 11 4.75H7Z"
+              /></svg
+            >
+            Zip
+          </button>
+          {#if zipSizeExceeded}
+            <span class="text-xs text-rose-400">
+              Selected exceeds {formatBytes(maxZipSize)} limit
+            </span>
+          {/if}
+          {#if inUploadDir}
+            <button
+              aria-label="Delete selected items"
+              onclick={deleteSelectedFiles}
+              disabled={!hasSelection || deletePending}
+              type="button"
+              class="group relative inline-flex h-9 items-center gap-1.5 rounded-lg border border-rose-800 bg-rose-950/30 px-3 text-xs font-medium text-rose-200 transition hover:border-rose-500 hover:text-rose-100 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"
+                ><path
+                  fill-rule="evenodd"
+                  d="M8.75 2.75a1.75 1.75 0 0 0-1.67 1.23L6.89 4.5H4.5a.75.75 0 0 0 0 1.5h.44l.83 9.12A2.25 2.25 0 0 0 8.01 17.25h3.98a2.25 2.25 0 0 0 2.24-2.13l.83-9.12h.44a.75.75 0 0 0 0-1.5h-2.39l-.19-.52a1.75 1.75 0 0 0-1.67-1.23h-2.5Z"
+                  clip-rule="evenodd"
+                /></svg
+              >
+              Delete
+            </button>
+          {/if}
+          {#if inUploadDir}
+            <button
+              aria-label="Create folder"
+              onclick={openCreateFolderDialog}
+              disabled={uploadBusy || createFolderPending}
+              type="button"
+              class="group relative inline-flex h-9 items-center gap-1.5 rounded-lg border border-emerald-800 bg-emerald-950/30 px-3 text-xs font-medium text-emerald-200 transition hover:border-emerald-500 hover:text-emerald-100 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"
+                ><path
+                  d="M2.75 5A2.25 2.25 0 0 1 5 2.75h3.19c.497 0 .974.198 1.326.549l1.185 1.186c.07.07.166.109.265.109H15A2.25 2.25 0 0 1 17.25 6.75v7.5A2.25 2.25 0 0 1 15 16.5H5a2.25 2.25 0 0 1-2.25-2.25V5Zm9 2.25a.75.75 0 0 0-1.5 0v1.5h-1.5a.75.75 0 0 0 0 1.5h1.5v1.5a.75.75 0 0 0 1.5 0v-1.5h1.5a.75.75 0 0 0 0-1.5h-1.5v-1.5Z"
+                /></svg
+              >
+              Create folder
+            </button>
           {/if}
         </div>
       {/if}
@@ -3419,5 +3558,27 @@
     pending={createFolderPending}
     onCreate={createFolder}
     onCancel={closeCreateFolderDialog}
+  />
+{/if}
+
+{#if compressDialogOpen}
+  <CompressDialog
+    title="Zip selected items"
+    message="Enter a filename for the zip archive."
+    bind:fileName={compressDialogFileName}
+    errorText={compressDialogErrorText}
+    pending={zipPending}
+    imageInfo={commonImageInfo}
+    imageExtension={commonImageExtension}
+    bind:resizeWidth={compressDialogResizeWidth}
+    bind:resizeHeight={compressDialogResizeHeight}
+    bind:resizeQuality={compressDialogResizeQuality}
+    bind:imageFormat={compressDialogImageFormat}
+    fileCount={selectedFileCount}
+    dirCount={selectedDirCount}
+    totalSize={compressDialogTotalSize}
+    formatBytes={formatBytes}
+    onCompress={handleCompress}
+    onCancel={closeCompressDialog}
   />
 {/if}

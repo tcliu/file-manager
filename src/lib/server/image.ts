@@ -225,10 +225,15 @@ export async function readImageMetadata(filePath: string): Promise<{ timestamp: 
     const metadata = await sharp(filePath, { pages: 1 }).metadata();
     const candidate = extractImageTimestamp(metadata);
     const parsed = candidate ? parseExifTimestamp(candidate) : null;
+    let w = Number.isFinite(metadata.width) ? metadata.width ?? null : null;
+    let h = Number.isFinite(metadata.height) ? metadata.height ?? null : null;
+    if (w && h && metadata.orientation && metadata.orientation >= 5) {
+      [w, h] = [h, w];
+    }
     return {
       timestamp: parsed ? parsed.toISOString() : null,
-      width: Number.isFinite(metadata.width) ? metadata.width ?? null : null,
-      height: Number.isFinite(metadata.height) ? metadata.height ?? null : null,
+      width: w,
+      height: h,
     };
   } catch {
     return { timestamp: null, width: null, height: null };
