@@ -10,7 +10,8 @@ import { resolveInlineMedia } from '$lib/server/video';
 import { logAccess } from '$lib/server/logging';
 import { createReadableStreamFromNode } from '$lib/server/stream';
 
-export const GET: RequestHandler = async ({ url, request }) => {
+export const GET: RequestHandler = async (event) => {
+  const { url, request } = event;
   const relativePath = url.searchParams.get('path');
 
   if (!relativePath) {
@@ -27,7 +28,7 @@ export const GET: RequestHandler = async ({ url, request }) => {
   const extension = path.extname(filePath).slice(1).toLowerCase();
 
   if (request.method === 'GET' && IMAGE_EXTENSIONS.has(extension)) {
-    logAccess(request as any, 'file_view', { path: relativePath, size: fileStat.size });
+    logAccess(event, 'file_view', { path: relativePath, size: fileStat.size });
   }
 
   const inlineMedia = await resolveInlineMedia(filePath, fileStat);

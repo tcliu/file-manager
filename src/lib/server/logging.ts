@@ -1,5 +1,7 @@
-export function logAccess(eventOrRequest: { request?: Request } | Request, action: string, details: Record<string, unknown> = {}): void {
-  const ip = getRequestIp(eventOrRequest);
+import type { RequestEvent } from '@sveltejs/kit';
+
+export function logAccess(event: RequestEvent, action: string, details: Record<string, unknown> = {}): void {
+  const ip = getRequestIp(event);
   logEvent(ip, action, details);
 }
 
@@ -12,11 +14,14 @@ export function logEvent(ip: string, action: string, details: Record<string, unk
   console.log(`${timestamp} ${level} ip=${ip || 'unknown'} action=${action}${serializedDetails ? ` ${serializedDetails}` : ''}`);
 }
 
-function getRequestIp(eventOrRequest: { request?: Request } | Request): string {
-  const req: Request | undefined = 'request' in eventOrRequest ? eventOrRequest.request : eventOrRequest as Request;
-  const forwardedFor = req?.headers?.get('x-forwarded-for');
-  if (forwardedFor) {
-    return forwardedFor.split(',')[0].trim();
+function getRequestIp(event: { request: Request; getClientAddress: () => string }): string {
+  try {
+    return event.getClientAddress();
+  } catch {
+    const forwardedFor = event.request.headers.get('x-forwarded-for');
+    if (forwardedFor) {
+      return forwardedFor.split(',')[0].trim();
+    }
+    return 'unknown';
   }
-  return 'unknown';
 }

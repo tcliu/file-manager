@@ -8,18 +8,19 @@ import {
 import { getAppConfig } from '$lib/server/config';
 import { logAccess } from '$lib/server/logging';
 
-export const POST: RequestHandler = async ({ request }) => {
+export const POST: RequestHandler = async (event) => {
+  const { request } = event;
   const appConfig = getAppConfig();
 
   if (!appConfig.auth.enabled) {
-    logAccess(request as any, 'logout', { username: '', auth_enabled: false, result: 'bypass' });
+    logAccess(event, 'logout', { username: '', auth_enabled: false, result: 'bypass' });
     return json({ ok: true });
   }
 
   const token = readSessionToken(request);
 
   if (!token) {
-    logAccess(request as any, 'logout_failed', {
+    logAccess(event, 'logout_failed', {
       auth_enabled: true, reason: 'missing_session',
     });
     return createAuthRequiredJsonResponse();
@@ -28,7 +29,7 @@ export const POST: RequestHandler = async ({ request }) => {
   const session = getSessionByToken(token);
 
   if (!session) {
-    logAccess(request as any, 'logout_failed', {
+    logAccess(event, 'logout_failed', {
       auth_enabled: true, reason: 'invalid_session',
     });
     return createAuthRequiredJsonResponse();
@@ -36,7 +37,7 @@ export const POST: RequestHandler = async ({ request }) => {
 
   globalThis.__fileManagerSessions?.delete(token);
 
-  logAccess(request as any, 'logout', {
+  logAccess(event, 'logout', {
     username: session.username, auth_enabled: true,
   });
 

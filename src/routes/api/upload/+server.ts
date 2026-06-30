@@ -6,7 +6,8 @@ import { normalizeRelativeDirectory, resolveListedDirectoryPath } from '$lib/ser
 import { saveMultipartFiles } from '$lib/server/upload';
 import { logAccess } from '$lib/server/logging';
 
-export const POST: RequestHandler = async ({ request, url }) => {
+export const POST: RequestHandler = async (event) => {
+  const { request, url } = event;
   const startedAt = Date.now();
   const currentDir = normalizeRelativeDirectory(url.searchParams.get('dir') ?? '');
   const destinationDir = resolveListedDirectoryPath(currentDir);
@@ -53,7 +54,7 @@ export const POST: RequestHandler = async ({ request, url }) => {
 
   const elapsedMs = Date.now() - startedAt;
   for (const file of uploadLogEntries) {
-    logAccess(request as any, 'upload', {
+    logAccess(event, 'upload', {
       directory: currentDir || '.',
       path: normalizeRelativeDirectory(path.posix.join(currentDir, file.fileName)),
       size: file.size, overwrite_existing: overwriteExisting,

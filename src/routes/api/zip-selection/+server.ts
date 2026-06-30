@@ -56,7 +56,8 @@ async function collectFiles(dir: string, items: string[], folderName?: string): 
   return files;
 }
 
-export const POST: RequestHandler = async ({ request, url }) => {
+export const POST: RequestHandler = async (event) => {
+  const { request, url } = event;
   const currentDir = normalizeRelativeDirectory(url.searchParams.get('dir') ?? '');
   const currentDirectoryPath = resolveListedDirectoryPath(currentDir);
   const directoryStat = await stat(currentDirectoryPath).catch(() => null);
@@ -92,7 +93,7 @@ export const POST: RequestHandler = async ({ request, url }) => {
 
   const startedAt = Date.now();
 
-  logAccess({ request }, 'zip_start', {
+  logAccess(event, 'zip_start', {
     items: selectedItems,
     resize_width: resizeWidth,
     resize_height: resizeHeight,
@@ -218,7 +219,7 @@ export const POST: RequestHandler = async ({ request, url }) => {
         const zipStat = await stat(zipPath);
         const expiresAt = Date.now() + 3600000;
 
-        logAccess({ request }, 'zip_complete', {
+        logAccess(event, 'zip_complete', {
           archive_size: zipStat.size,
           display_name: displayName,
         });
@@ -233,7 +234,7 @@ export const POST: RequestHandler = async ({ request, url }) => {
         controller.close();
       } catch (err) {
         await rm(zipPath, { force: true }).catch(() => {});
-        logAccess({ request }, 'zip_error', {
+        logAccess(event, 'zip_error', {
           error: err instanceof Error ? err.message : String(err),
         });
         controller.error(err);

@@ -16,7 +16,8 @@ function parsePageSize(value: string | null): PageSizeOption | number {
   return (PAGE_SIZE_OPTIONS as readonly (PageSizeOption | number)[]).includes(pageSize) ? pageSize : DEFAULT_PAGE_SIZE;
 }
 
-export const GET: RequestHandler = async ({ url, request }) => {
+export const GET: RequestHandler = async (event) => {
+  const { url, request } = event;
   const startedAt = Date.now();
   const page = Math.max(1, Number(url.searchParams.get('page') ?? '1'));
   const pageSize = parsePageSize(url.searchParams.get('pageSize'));
@@ -60,7 +61,7 @@ export const GET: RequestHandler = async ({ url, request }) => {
   await enrichImageMetadata(pagedFiles, { extractTimestamp: view === 'grid' });
   await enrichVideoDimensions(pagedFiles);
 
-  logAccess(request as any, 'dir_navigation', {
+  logAccess(event, 'dir_navigation', {
     directory: currentDir || '.', page, page_size: pageSize,
     selected_extensions: selectedExtensions,
     total_directories: listing.directories.length, total_files: total,

@@ -13,7 +13,8 @@ function normalizeArchiveEntryPath(relativePath: string): string {
   return normalizedPath;
 }
 
-export const GET: RequestHandler = async ({ url, request }) => {
+export const GET: RequestHandler = async (event) => {
+  const { url, request } = event;
   const startedAt = Date.now();
   const relativePath = url.searchParams.get('path');
   const entryPath = url.searchParams.get('entry');
@@ -83,7 +84,7 @@ export const GET: RequestHandler = async ({ url, request }) => {
       streamZipArchiveEntry(archivePath, normalizedEntryPath, mockResponse as any)
         .then(() => {
           if (!controller.desiredSize || controller.desiredSize <= 0) return;
-          logAccess(request as any, 'archive_entry_download', {
+          logAccess(event, 'archive_entry_download', {
             path: relativePath, entry: normalizedEntryPath, archive_size: archiveStat.size,
             elapsed_ms: Date.now() - startedAt,
           });

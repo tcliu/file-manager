@@ -10,7 +10,8 @@ import {
 import { RAW_IMAGE_EXTENSIONS, VIDEO_EXTENSIONS } from '$lib/server/constants';
 import { logAccess } from '$lib/server/logging';
 
-export const POST: RequestHandler = async ({ request, url }) => {
+export const POST: RequestHandler = async (event) => {
+  const { request, url } = event;
   const startedAt = Date.now();
   const currentDir = normalizeRelativeDirectory(url.searchParams.get('dir') ?? '');
   const currentDirectoryPath = resolveListedDirectoryPath(currentDir);
@@ -57,7 +58,7 @@ export const POST: RequestHandler = async ({ request, url }) => {
     }
   }
 
-  logAccess(request as any, 'delete', {
+  logAccess(event, 'delete', {
     directory: currentDir,
     items: requestedItems,
     elapsed_ms: Date.now() - startedAt,

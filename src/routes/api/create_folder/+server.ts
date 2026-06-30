@@ -10,7 +10,8 @@ import {
 import { canCreateFolderInDirectory } from '$lib/server/access-policy';
 import { logAccess } from '$lib/server/logging';
 
-export const POST: RequestHandler = async ({ request, url }) => {
+export const POST: RequestHandler = async (event) => {
+  const { request, url } = event;
   const currentDir = normalizeRelativeDirectory(url.searchParams.get('dir') ?? '');
   const currentDirectoryPath = resolveListedDirectoryPath(currentDir);
   const directoryStat = await stat(currentDirectoryPath).catch(() => null);
@@ -44,7 +45,7 @@ export const POST: RequestHandler = async ({ request, url }) => {
 
   await mkdir(targetPath, { recursive: false });
 
-  logAccess(request as any, 'dir_create', {
+  logAccess(event, 'dir_create', {
     directory: currentDir,
     name: folderName,
   });
