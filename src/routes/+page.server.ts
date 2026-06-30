@@ -16,5 +16,7 @@ export const load: PageServerLoad = async () => {
     imageExtensions: [...IMAGE_EXTENSIONS],
     videoExtensions: [...VIDEO_EXTENSIONS],
     thumbnailSupportedExtensions: [...IMAGE_EXTENSIONS].filter(ext => !THUMBNAIL_UNSUPPORTED_EXTENSIONS.includes(ext)),
+    lightboxLoadDebounceMs: appConfig.lightboxLoadDebounceMs,
+    pageLoadDebounceMs: appConfig.pageLoadDebounceMs,
   };
 };

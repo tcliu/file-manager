@@ -20,6 +20,8 @@ export interface AppConfig {
   auth: AuthConfig;
   uploadDir: string;
   maxZipSize: number;
+  lightboxLoadDebounceMs: number;
+  pageLoadDebounceMs: number;
 }
 
 let cachedConfig: AppConfig | null = null;
@@ -65,11 +67,15 @@ function loadAppConfigSync(): AppConfig {
 
   const uploadDir = normalizeConfiguredDir(entries['upload-dir'], DEFAULT_UPLOAD_DIR, rootDirs, rootDirs.length > 1 ? rootDirs[0] : rootDir);
   const maxZipSize = parseFileSize(entries['max-zip-size']) ?? 1073741824;
+  const lightboxLoadDebounceMs = parsePositiveInt(entries['lightbox-load-debounce-ms'], 200);
+  const pageLoadDebounceMs = parsePositiveInt(entries['page-load-debounce-ms'], 200);
 
   return {
     auth: { enabled: password !== '', sessionExpiryMs, username, password },
     uploadDir,
     maxZipSize,
+    lightboxLoadDebounceMs,
+    pageLoadDebounceMs,
   };
 }
 
@@ -163,6 +169,12 @@ export function parseSessionExpiryMs(value: string | undefined): number {
     return 3600000; // default 1 hour
   }
   return sessionExpiryMs;
+}
+
+export function parsePositiveInt(value: string | undefined, fallback: number): number {
+  const num = Number(value);
+  if (!Number.isInteger(num) || num <= 0) return fallback;
+  return num;
 }
 
 export function parseFileSize(value: string | undefined): number | null {

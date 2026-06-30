@@ -81,6 +81,8 @@
     imageExtensions: string[];
     videoExtensions: string[];
     thumbnailSupportedExtensions: string[];
+    lightboxLoadDebounceMs: number;
+    pageLoadDebounceMs: number;
   }
 
   let {
@@ -90,6 +92,8 @@
     imageExtensions,
     videoExtensions,
     thumbnailSupportedExtensions,
+    lightboxLoadDebounceMs,
+    pageLoadDebounceMs,
   }: Props = $props();
 
   const LIGHTBOX_FIT_ZOOM_VALUE = "fit";
@@ -232,6 +236,8 @@
   let lightboxNextDisabled = $state(false);
   let lightboxZoomValue = $state("fit");
   let lightboxZoomMenuOpen = $state(false);
+  let lightboxDebounceTimer: ReturnType<typeof setTimeout> | undefined;
+  let pageLoadDebounceTimer: ReturnType<typeof setTimeout> | undefined;
   let lightboxZoomInDisabled = $state(false);
   let lightboxZoomOutDisabled = $state(true);
   let lightboxCanPan = $state(false);
@@ -618,7 +624,7 @@
     const nextPage = movePage(ui.page, ui.totalPages, delta);
     if (nextPage === null) return;
     ui.page = nextPage;
-    loadFiles();
+    schedulePageLoad();
   }
 
   function setViewMode(mode: "list" | "grid") {
@@ -1256,6 +1262,10 @@
   }
 
   function closeLightbox() {
+    if (lightboxDebounceTimer) {
+      clearTimeout(lightboxDebounceTimer);
+      lightboxDebounceTimer = undefined;
+    }
     const closingLightboxPath = lightboxPathValue;
     const lightboxVideo = sharedVideo.getElementsByPath(
       closingLightboxPath,
@@ -1332,7 +1342,7 @@
     const isImage = isImageFile(currentFile.extension);
     const isVideo = isVideoFile(currentFile.extension);
     lightboxMode = isVideo ? "video" : isImage ? "image" : "";
-    lightboxImageUrl = isImage ? getMediaUrl(currentFile.path) : "";
+    lightboxImageUrl = "";
     lightboxImageError = false;
     lightboxVideoUrl = "";
     lightboxVideoReady = false;
@@ -1358,6 +1368,49 @@
     ui.lightboxImageNaturalWidth = 0;
     ui.lightboxImageNaturalHeight = 0;
     resetLightboxZoom();
+    scheduleLightboxMediaLoad();
+  }
+
+  function scheduleLightboxMediaLoad() {
+    if (lightboxDebounceTimer) {
+      clearTimeout(lightboxDebounceTimer);
+    }
+    lightboxDebounceTimer = setTimeout(() => {
+      lightboxDebounceTimer = undefined;
+      commitLightboxMediaLoad();
+    }, lightboxLoadDebounceMs);
+  }
+
+  function schedulePageLoad() {
+    if (pageLoadDebounceTimer) {
+      clearTimeout(pageLoadDebounceTimer);
+    }
+    pageLoadDebounceTimer = setTimeout(() => {
+      pageLoadDebounceTimer = undefined;
+      loadFiles();
+    }, pageLoadDebounceMs);
+  }
+
+  function commitLightboxMediaLoad() {
+    if (!lightboxOpen) return;
+    const currentFile = ui.visibleMediaFiles[ui.lightboxIndex];
+    if (!currentFile) return;
+    if (lightboxPathValue !== currentFile.path) return;
+
+    const isImage = isImageFile(currentFile.extension);
+    const isVideo = isVideoFile(currentFile.extension);
+
+    lightboxImageUrl = isImage ? getMediaUrl(currentFile.path) : "";
+    lightboxImageError = false;
+    lightboxVideoUrl = "";
+    lightboxVideoReady = false;
+    lightboxVideoProgressLabel = "Preparing video for browser playback...";
+    lightboxVideoProgressValue = "0%";
+    lightboxVideoProgressWidth = "0%";
+    lightboxVideoErrorText = "";
+    ui.lightboxImageNaturalWidth = 0;
+    ui.lightboxImageNaturalHeight = 0;
+
     if (isVideo) {
       sharedVideo.handoffToSurface(currentFile.path, "lightbox", true);
       syncLightboxVideoPreparation(
@@ -2773,7 +2826,7 @@
               ui.totalPages,
               Math.max(1, Number(pageInputValue || "1")),
             );
-            loadFiles();
+            schedulePageLoad();
           }}
           onkeydown={(e) => {
             if (e.key === "Enter") {
@@ -2781,7 +2834,7 @@
                 ui.totalPages,
                 Math.max(1, Number(pageInputValue || "1")),
               );
-              loadFiles();
+              schedulePageLoad();
             }
           }}
           type="number"

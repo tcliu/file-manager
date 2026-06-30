@@ -11,4 +11,6 @@
   imageExtensions={data.imageExtensions}
   videoExtensions={data.videoExtensions}
   thumbnailSupportedExtensions={data.thumbnailSupportedExtensions}
+  lightboxLoadDebounceMs={data.lightboxLoadDebounceMs}
+  pageLoadDebounceMs={data.pageLoadDebounceMs}
 />
