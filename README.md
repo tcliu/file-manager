@@ -71,6 +71,7 @@ Config keys:
 - `session-expiry-ms`: session lifetime in milliseconds; invalid values fall back to `3600000`
 - `upload-dir`: upload subtree name/path inside the active root; must stay within configured root(s)
 - `root-dir`: single path or comma-separated list of root directories, resolved relative to the base directory
+- `max-zip-size`: maximum total size for zip creation (supports `B`, `KB`, `MB`, `GB`, `TB` suffixes); defaults to `1GB`
 
 ## Multiple Root Dirs
 
@@ -106,6 +107,14 @@ When multiple roots are configured:
 - Generated browser-preview images/videos are stored under `.processed`.
 - Video previews are converted to browser-playable `.mp4` files on demand.
 - `.zip` archives can be browsed in the lightbox and downloaded entry-by-entry.
+- Selected files/directories can be zipped via the selection action bar above the file listing. The zip dialog supports:
+  - Custom filename (defaults to `{name}.zip` for single items, `{timestamp}.zip` for multiple).
+  - Image resize and format conversion (JPEG/PNG) when selected images share the same dimensions.
+  - Quality control and aspect-ratio-locked dimension editing.
+  - Multi-item zip wraps files in a folder named after the archive.
+- A name filter input in the breadcrumb trail filters files and directories server-side by case-insensitive substring match (debounced, resets pagination).
+- Extension filter chips can be toggled to narrow the listing to specific file types.
+- Section header checkboxes provide select-all / deselect-all for Folders and Files separately, with indeterminate state for partial selection.
 
 ## Docs
 

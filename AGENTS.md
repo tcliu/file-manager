@@ -32,5 +32,60 @@
 
 - Custom dropdown menus are used instead of native `<select>`. Pattern: a `relative` container div, a toggle button with the current value and a chevron SVG, and an `absolute` dropdown panel (`z-20 mt-2 overflow-hidden rounded-lg border border-slate-700 bg-slate-900/95 p-1 shadow-2xl shadow-slate-950/60 backdrop-blur`).
 - The active option uses `bg-cyan-500/15 text-cyan-200` for the highlight style.
-- Outside-click dismissal is handled via a `$effect` with a `mousedown` event listener on `document`.
+- Outside-click dismissal is handled via a `$effect` with a `mousedown` event listener on `document`. Blur dismissal uses `onfocusout` on the container div, checking `e.relatedTarget`.
 - (Example implementations: `pageSizeContainerRef` in FileManager.svelte, `imageFormatContainerRef` in CompressDialog.svelte)
+
+## Selection Action Bar Design
+
+- A horizontal button bar (`h-9`, `text-xs`, `gap-1.5`) is displayed above the folders/files listing whenever items are present on the page.
+- Buttons are enabled only when there is an active file selection (`hasSelection`).
+- Available actions: **Zip** (always visible), **Delete** (upload directory only), **Create folder** (upload directory only).
+- When total selected size exceeds `maxZipSize`, the Zip button is disabled with a warning text.
+- The upload dropzone panel only contains the Upload button and drop target — selection actions were moved to the action bar.
+
+## Name / Extension Filter Design
+
+- Extension filter buttons (`.ext`) are displayed in a flex row below the toolbar, toggled on/off via server-side query parameter `ext`.
+- A text-based name filter input is appended to the breadcrumb trail with a `/` separator, styled identically to breadcrumb pills (`rounded-full`, `text-xs`, same border/bg).
+- The name filter applies server-side via `name_filter` query parameter — both directories and files are filtered before pagination, so totals and page counts reflect the filtered set.
+- The filter is debounced (300ms) before issuing a new `/api/files` request, resetting to page 1.
+
+## Section-Header Checkbox Design
+
+- In both list and grid views, the **Folders** and **Files** section headers have a prepended checkbox for "select all" / "deselect all" within that category.
+- The checkbox shows an `indeterminate` state when some (but not all) items in the section are selected.
+- `directoriesAllSelected` / `filesAllSelected` derived values check `ui.selectedFiles.has()` for every visible item.
+- `directoriesSomeSelected` / `filesSomeSelected` drive the indeterminate state via `$effect` on the checkbox DOM element.
+- The underlying per-item checkboxes use `ui.selectedFiles.has(path)` — the Set is replaced with a new instance (`new Set(ui.selectedFiles)`) after every mutation to guarantee Svelte 5 reactivity.
+
+## Zip Compress Dialog Design
+
+- The Zip dialog (`CompressDialog.svelte`) follows the standard dialog design (close icon, Escape, backdrop click).
+- Displays file count, folder count, and total size (including directory contents, fetched from `/api/selection-size`) as tag badges.
+- Filename defaults: single item = `{name}.zip` (strips original extension); multiple items = `{yyyyMMddHHmmss}.zip`.
+- When all selected images share the same dimensions (`commonImageInfo`), an **Image options** section appears with:
+  - **Image Type** (JPEG/PNG) — custom dropdown, only shown when all images share the same file extension; defaults to the shared extension; supports JPEG↔PNG conversion.
+  - **Ratio** slider (1–100%) — adjusts width/height proportionally.
+  - **Dimensions** (width × height) — editing one adjusts the other via aspect ratio lock, and updates the ratio slider.
+  - **Quality** slider (1–100%) — JPEG output quality; defaults to 100 (no re-encoding when dimensions match).
+- Fields use a CSS grid (`grid-cols-[auto_1fr]`) for consistent label alignment.
+- The dialog stays open during the zip creation (showing "Zipping...") and displays errors inline.
+
+## Zip Server-Side Processing
+
+- The `/api/zip-selection` endpoint accepts `items`, `filename`, `folderName`, `resizeWidth`, `resizeHeight`, `resizeQuality`, and `imageFormat`.
+- When resize params are provided, each sharp-supported image is processed individually:
+  - EXIF orientation is preserved via `sharp(sourcePath).rotate()`.
+  - Raw pixel dimensions (from `sharp.metadata()`) are swapped when EXIF orientation >= 5 to match viewed dimensions.
+  - If dimensions match original AND quality is 100 AND format is unchanged, the original file is used as-is (no re-encoding).
+  - Otherwise, the image is re-encoded to the target format (`.jpeg()` or `.png()`) with the requested quality.
+  - The archive entry extension is updated to match the output format (`.jpg` or `.png`).
+- Directory items are added recursively as-is.
+- Non-image files are added as-is.
+- Temp resize files are cleaned up in a `finally` block.
+
+## Env Config
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `max-zip-size` | string (byte size) | `1073741824` (1 GB) | Maximum total size of selected items for zip creation. Supports `B`, `KB`, `MB`, `GB`, `TB` suffixes. Exceeding this disables the Zip button. |
