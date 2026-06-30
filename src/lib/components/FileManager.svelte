@@ -855,8 +855,8 @@
     canGoPrev = data.page > 1;
     canGoNext = data.page < data.totalPages;
     syncBreadcrumbState();
-    summaryFolderText = data.directories.length + " folders";
-    summaryFileText = data.total + " files";
+    summaryFolderText = data.directories.length > 0 ? data.directories.length + " folders" : "";
+    summaryFileText = data.total > 0 ? data.total + " files" : "";
     totalSizeText = data.total > 0 ? formatBytes(data.totalSize) : "";
     updateSelectedCount();
     statusText =
@@ -3336,35 +3336,39 @@
                       />
                     </div>
                     <div class="space-y-2 p-4">
-                      {#if isVideoFile(file.extension)}
-                        <button
-                          type="button"
-                          class="block w-full truncate text-left font-semibold text-slate-100 underline-offset-4 transition hover:text-cyan-300 hover:underline"
-                          onclick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            openLightbox(file.path);
-                          }}>{file.name}</button
+                      <div
+                        class="flex items-center gap-2"
+                      >
+                        {#if isVideoFile(file.extension)}
+                          <button
+                            type="button"
+                            class="min-w-0 truncate font-semibold text-slate-100 underline-offset-4 transition hover:text-cyan-300 hover:underline"
+                            onclick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              openLightbox(file.path);
+                            }}>{file.name}</button
+                          >
+                        {:else}
+                          <a
+                            class="min-w-0 truncate font-semibold text-slate-100 underline-offset-4 hover:text-cyan-300 hover:underline"
+                            href={getDownloadUrl(file.path)}>{file.name}</a
+                          >
+                        {/if}
+                        <span
+                          class="shrink-0 rounded-full border border-slate-700 px-2 py-1 text-xs text-slate-400"
+                          >.{file.extension || "none"}</span
                         >
-                      {:else}
-                        <a
-                          class="block truncate font-semibold text-slate-100 underline-offset-4 hover:text-cyan-300 hover:underline"
-                          href={getDownloadUrl(file.path)}>{file.name}</a
-                        >
-                      {/if}
+                      </div>
                       <div
                         class="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-400"
                       >
-                        <span
-                          class="rounded-full border border-slate-700 px-2 py-1"
-                          >.{file.extension || "none"}</span
-                        >
                         <span>{formatBytes(file.size)}</span>
                         {#if formatImageDimensions(file)}
-                          <span class="text-slate-600">|</span>
+                          <span class="-mx-1 text-slate-600">|</span>
                           <span>{formatImageDimensions(file)}</span>
                         {/if}
-                        <span class="text-slate-600">|</span>
+                        <span class="-mx-1 text-slate-600">|</span>
                         <span>{formatDateTime(file.modifiedAt)}</span>
                       </div>
                     </div>
