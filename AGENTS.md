@@ -30,6 +30,7 @@
 - Explicit zoom sets absolute pixel `width`/`height` via inline style with `max-width: none; maxHeight: none`.
 - Natural image dimensions are captured on `onload` of the `<img>` element and stored for zoom percentage calculations.
 - The backdrop class changes based on mode: `overflow-auto` for image/zip, `overflow-hidden` for video.
+- Lightbox navigation (prev/next) debounces media loading: URLs are cleared immediately, and the actual image/video load is deferred until the index stays stable for `lightboxLoadDebounceMs` (configurable via `lightbox-load-debounce-ms`, default 200ms).
 
 ## Dialog Design
 
@@ -64,6 +65,7 @@
 - Page size options: `10`, `20`, `50`, `100`, `200`, `500`, `All`.
 - Default page size is `20`.
 - A refresh button with a circular-arrow SVG icon and tooltip is placed in the action bar (above the folders/files listing), always visible when items are present.
+- Page switching (prev/next buttons, page input, keyboard arrows) is debounced via `pageLoadDebounceMs` (configurable via `page-load-debounce-ms`, default 200ms) to prevent rapid successive server requests.
 
 ## Name / Extension Filter Design
 
@@ -116,4 +118,6 @@
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `max-zip-size` | string (byte size) | `1073741824` (1 GB) | Maximum total size of selected items for zip creation. Supports `B`, `KB`, `MB`, `GB`, `TB` suffixes. Exceeding this disables the Zip button. |
+| `max-zip-size` | string (byte size) | — | Maximum total size of selected items for zip creation. Supports `B`, `KB`, `MB`, `GB`, `TB` suffixes. Exceeding this disables the Zip button. |
+| `lightbox-load-debounce-ms` | integer | — | Debounce delay (ms) for loading media after lightbox navigation. Prevents rapid reloads when cycling through images/videos quickly. |
+| `page-load-debounce-ms` | integer | — | Debounce delay (ms) for loading files after page switch. Prevents rapid successive server requests when clicking prev/next quickly. |
