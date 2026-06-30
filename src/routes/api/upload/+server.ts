@@ -7,6 +7,7 @@ import { saveMultipartFiles } from '$lib/server/upload';
 import { logAccess } from '$lib/server/logging';
 
 export const POST: RequestHandler = async ({ request, url }) => {
+  const startedAt = Date.now();
   const currentDir = normalizeRelativeDirectory(url.searchParams.get('dir') ?? '');
   const destinationDir = resolveListedDirectoryPath(currentDir);
   const overwriteExisting = url.searchParams.get('overwrite') === '1';
@@ -47,11 +48,13 @@ export const POST: RequestHandler = async ({ request, url }) => {
     throw error;
   }
 
+  const elapsedMs = Date.now() - startedAt;
   for (const file of uploadLogEntries) {
     logAccess(request as any, 'upload', {
       directory: currentDir || '.',
       path: normalizeRelativeDirectory(path.posix.join(currentDir, file.fileName)),
       size: file.size, overwrite_existing: overwriteExisting,
+      elapsed_ms: elapsedMs,
     });
   }
 

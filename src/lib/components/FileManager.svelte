@@ -191,6 +191,7 @@
   let compressDialogResizeHeight = $state(0);
   let compressDialogResizeQuality = $state(100);
   let compressDialogImageFormat = $state("jpeg");
+  let compressDialogProgress = $state<number | null>(null);
 
   let lightboxOpen = $state(false);
   let lightboxMode = $state("");
@@ -1296,6 +1297,7 @@
       ? fileName.replace(/\.zip$/i, "")
       : undefined;
     zipPending = true;
+    compressDialogProgress = 0;
     compressDialogErrorText = "";
     const query = new URLSearchParams({ dir: ui.currentDir });
     const body: Record<string, any> = {
@@ -1314,25 +1316,89 @@
       headers: { "content-type": "application/json", ...getAuthHeaders() },
       body: JSON.stringify(body),
     });
-    zipPending = false;
     if (!response.ok) {
+      zipPending = false;
+      compressDialogProgress = null;
       const data = await response.json().catch(() => ({}));
       compressDialogErrorText = data.error ?? "Failed to create zip file";
       return;
     }
-    compressDialogOpen = false;
-    compressDialogFileName = "download.zip";
-    compressDialogErrorText = "";
-    const blob = await response.blob();
-    const downloadUrl = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = downloadUrl;
-    link.download = fileName;
-    link.click();
-    URL.revokeObjectURL(downloadUrl);
-    ui.selectedFiles = new Set();
-    updateSelectedCount();
-    statusText = "Downloaded zip: " + fileName;
+    try {
+      const reader = response.body!.getReader();
+      const textDecoder = new TextDecoder();
+      const chunks: Uint8Array[] = [];
+      let zipDataStart: number | null = null;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (value) chunks.push(value);
+
+        if (zipDataStart === null) {
+          const totalLen = chunks.reduce((s, c) => s + c.length, 0);
+          const combined = new Uint8Array(totalLen);
+          let off = 0;
+          for (const c of chunks) { combined.set(c, off); off += c.length; }
+
+          const text = textDecoder.decode(combined, { stream: !done });
+          const doneIdx = text.indexOf('"done"');
+          if (doneIdx !== -1) {
+            const lineEnd = text.indexOf('\n', doneIdx);
+            if (lineEnd !== -1) {
+              const progressText = text.slice(0, lineEnd);
+              for (const line of progressText.split('\n').filter(Boolean)) {
+                try { const d = JSON.parse(line); if (typeof d.p === 'number') compressDialogProgress = d.p; } catch {}
+              }
+              zipDataStart = new TextEncoder().encode(text.slice(0, lineEnd + 1)).length;
+            }
+          } else if (!done) {
+            const lastNewline = text.lastIndexOf('\n');
+            if (lastNewline > 0) {
+              for (const line of text.slice(0, lastNewline).split('\n').filter(Boolean)) {
+                try { const d = JSON.parse(line); if (typeof d.p === 'number') compressDialogProgress = d.p; } catch {}
+              }
+            }
+          }
+        }
+
+        if (done) break;
+      }
+
+      zipPending = false;
+      compressDialogProgress = null;
+
+      let zipBlob: Blob;
+      if (zipDataStart !== null) {
+        const totalLen = chunks.reduce((s, c) => s + c.length, 0);
+        const combined = new Uint8Array(totalLen);
+        let off = 0;
+        for (const c of chunks) { combined.set(c, off); off += c.length; }
+        zipBlob = new Blob([combined.slice(zipDataStart)], { type: 'application/zip' });
+      } else {
+        const totalLen = chunks.reduce((s, c) => s + c.length, 0);
+        const combined = new Uint8Array(totalLen);
+        let off = 0;
+        for (const c of chunks) { combined.set(c, off); off += c.length; }
+        zipBlob = new Blob([combined], { type: 'application/zip' });
+      }
+
+      compressDialogOpen = false;
+      compressDialogFileName = "download.zip";
+      compressDialogErrorText = "";
+
+      const downloadUrl = URL.createObjectURL(zipBlob);
+      const link = document.createElement("a");
+      link.href = downloadUrl;
+      link.download = fileName;
+      link.click();
+      URL.revokeObjectURL(downloadUrl);
+      ui.selectedFiles = new Set();
+      updateSelectedCount();
+      statusText = "Downloaded zip: " + fileName;
+    } catch {
+      zipPending = false;
+      compressDialogProgress = null;
+      compressDialogErrorText = "Failed to create zip file";
+    }
   }
 
   function openConfirmDialog(options: {
@@ -3568,6 +3634,7 @@
     bind:fileName={compressDialogFileName}
     errorText={compressDialogErrorText}
     pending={zipPending}
+    bind:progress={compressDialogProgress}
     imageInfo={commonImageInfo}
     imageExtension={commonImageExtension}
     bind:resizeWidth={compressDialogResizeWidth}

@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { createWriteStream } from 'node:fs';
-import { stat } from 'node:fs/promises';
+import { stat, readdir } from 'node:fs/promises';
 import archiver from 'archiver';
 import { logEvent } from './logging';
 import { getRootDirPath } from './config';
@@ -206,13 +206,48 @@ export function ensureZipArchiveEntryReadable(filePath: string, entryPath: strin
   });
 }
 
-export async function createZipArchive(cwd: string, archivePath: string, selectedItems: string[], folderName?: string): Promise<void> {
+export async function countFilesRecursive(dirPath: string): Promise<number> {
+  let count = 0;
+  const entries = await readdir(dirPath, { withFileTypes: true });
+  for (const entry of entries) {
+    if (entry.isDirectory()) {
+      count += await countFilesRecursive(path.join(dirPath, entry.name));
+    } else {
+      count++;
+    }
+  }
+  return count;
+}
+
+export async function createZipArchive(
+  cwd: string,
+  archivePath: string,
+  selectedItems: string[],
+  folderName?: string,
+  onProgress?: (processed: number, total: number) => void,
+): Promise<void> {
+  let totalFiles = 0;
+  for (const item of selectedItems) {
+    const sourcePath = path.join(cwd, item);
+    const itemStat = await stat(sourcePath);
+    if (itemStat.isDirectory()) {
+      totalFiles += await countFilesRecursive(sourcePath);
+    } else {
+      totalFiles++;
+    }
+  }
+
   return new Promise((resolve, reject) => {
     const output = createWriteStream(archivePath);
     const archive = archiver('zip', { zlib: { level: 9 } });
     output.on('close', resolve);
     output.on('error', reject);
     archive.on('error', reject);
+
+    archive.on('progress', (p) => {
+      onProgress?.(p.entries.processed, p.entries.total);
+    });
+
     archive.pipe(output);
 
     (async () => {

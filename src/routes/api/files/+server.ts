@@ -19,6 +19,7 @@ function parsePageSize(value: string | null): PageSizeOption | number {
 }
 
 export const GET: RequestHandler = async ({ url, request }) => {
+  const startedAt = Date.now();
   const page = Math.max(1, Number(url.searchParams.get('page') ?? '1'));
   const pageSize = parsePageSize(url.searchParams.get('pageSize'));
   const view = url.searchParams.get('view') === 'grid' ? 'grid' : 'list';
@@ -72,6 +73,7 @@ export const GET: RequestHandler = async ({ url, request }) => {
     directory: currentDir || '.', page, page_size: pageSize,
     selected_extensions: selectedExtensions,
     total_directories: listing.directories.length, total_files: total,
+    elapsed_ms: Date.now() - startedAt,
   });
 
   return json({
