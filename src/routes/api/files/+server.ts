@@ -3,11 +3,9 @@ import type { RequestHandler } from './$types';
 import {
   normalizeRelativeDirectory,
   listDirectoryContents,
-  resolveListedDirectoryPath,
 } from '$lib/server/file-utils';
-import { enrichImageDimensions, enrichGridFileTimestamps } from '$lib/server/image';
+import { enrichImageMetadata } from '$lib/server/image';
 import { enrichVideoDimensions } from '$lib/server/video';
-import { listExtensions } from '$lib/server/file-utils';
 import { logAccess } from '$lib/server/logging';
 import { DEFAULT_PAGE_SIZE, PAGE_SIZE_OPTIONS, IMAGE_EXTENSIONS, VIDEO_EXTENSIONS } from '$lib/server/constants';
 import type { PageSizeOption } from '$lib/server/constants';
@@ -27,47 +25,43 @@ export const GET: RequestHandler = async ({ url, request }) => {
   let selectedExtensions = url.searchParams.getAll('ext').map((ext) => ext.toLowerCase());
   const nameFilter = (url.searchParams.get('name_filter') ?? '').trim().toLowerCase();
 
-  let listing = await listDirectoryContents(currentDir, selectedExtensions);
+  let listing = await listDirectoryContents(currentDir, []);
 
-  if (selectedExtensions.length > 0 && listing.files.length === 0) {
-    const unfilteredListing = await listDirectoryContents(currentDir, []);
-    if (unfilteredListing.files.length > 0) {
+  const extensions = [...new Set(listing.files.map((f) => f.extension))].sort();
+
+  let filteredFiles = listing.files;
+  if (selectedExtensions.length > 0) {
+    filteredFiles = listing.files.filter((f) => selectedExtensions.includes(f.extension));
+    if (filteredFiles.length === 0) {
       selectedExtensions = [];
-      listing = unfilteredListing;
+      filteredFiles = listing.files;
     }
   }
 
   if (nameFilter) {
-    listing = {
-      ...listing,
-      directories: listing.directories.filter((d) => d.name.toLowerCase().includes(nameFilter)),
-      files: listing.files.filter((f) => f.name.toLowerCase().includes(nameFilter)),
-    };
+    filteredFiles = filteredFiles.filter((f) => f.name.toLowerCase().includes(nameFilter));
+    const filteredDirs = listing.directories.filter((d) => d.name.toLowerCase().includes(nameFilter));
+    listing = { ...listing, directories: filteredDirs };
   }
 
-  const total = listing.files.length;
-  const totalSize = listing.files.reduce((sum, f) => sum + f.size, 0);
+  const total = filteredFiles.length;
+  const totalSize = filteredFiles.reduce((sum, f) => sum + f.size, 0);
   const pagedFiles = pageSize === 'All'
-    ? listing.files
-    : listing.files.slice((page - 1) * (pageSize as number), page * (pageSize as number));
+    ? filteredFiles
+    : filteredFiles.slice((page - 1) * (pageSize as number), page * (pageSize as number));
   const totalPages = pageSize === 'All' ? 1 : Math.max(1, Math.ceil(total / (pageSize as number)));
 
-  const allFiles = listing.files;
-  const totalMedia = allFiles.filter(
+  const totalMedia = filteredFiles.filter(
     (f) => IMAGE_EXTENSIONS.has(f.extension) || VIDEO_EXTENSIONS.has(f.extension),
   ).length;
   const mediaOffset = pageSize === 'All'
     ? 0
-    : allFiles.slice(0, (page - 1) * (pageSize as number))
+    : filteredFiles.slice(0, (page - 1) * (pageSize as number))
         .filter((f) => IMAGE_EXTENSIONS.has(f.extension) || VIDEO_EXTENSIONS.has(f.extension))
         .length;
 
-  await enrichImageDimensions(pagedFiles);
+  await enrichImageMetadata(pagedFiles, { extractTimestamp: view === 'grid' });
   await enrichVideoDimensions(pagedFiles);
-
-  if (view === 'grid') {
-    await enrichGridFileTimestamps(pagedFiles);
-  }
 
   logAccess(request as any, 'dir_navigation', {
     directory: currentDir || '.', page, page_size: pageSize,
@@ -89,5 +83,6 @@ export const GET: RequestHandler = async ({ url, request }) => {
     mediaOffset,
     pageSizeOptions: [...PAGE_SIZE_OPTIONS],
     selectedExtensions,
+    extensions,
   });
 };

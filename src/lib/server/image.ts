@@ -240,7 +240,10 @@ export async function readImageMetadata(filePath: string): Promise<{ timestamp: 
   }
 }
 
-export async function enrichImageDimensions(files: { extension: string; path: string; width?: number; height?: number }[]): Promise<void> {
+export async function enrichImageMetadata(
+  files: { extension: string; path: string; width?: number; height?: number; modifiedAt?: string }[],
+  options?: { extractTimestamp?: boolean },
+): Promise<void> {
   const { IMAGE_EXTENSIONS } = await import('./constants');
   await Promise.all(files.map(async (file) => {
     if (!IMAGE_EXTENSIONS.has(file.extension)) return;
@@ -249,16 +252,8 @@ export async function enrichImageDimensions(files: { extension: string; path: st
       file.width = metadata.width;
       file.height = metadata.height;
     }
-  }));
-}
-
-export async function enrichGridFileTimestamps(files: { extension: string; path: string; modifiedAt: string }[]): Promise<void> {
-  const { IMAGE_EXTENSIONS } = await import('./constants');
-  await Promise.all(files.map(async (file) => {
-    if (!IMAGE_EXTENSIONS.has(file.extension)) return;
-    const metadata = await readImageMetadata(resolveListedFilePath(file.path));
-    if (metadata.timestamp) {
-      file.modifiedAt = metadata.timestamp;
+    if (options?.extractTimestamp && metadata.timestamp) {
+      (file as any).modifiedAt = metadata.timestamp;
     }
   }));
 }
@@ -332,7 +327,17 @@ async function createProcessedImage(sourcePath: string, processedPath: string): 
 }
 
 async function convertImageToJpeg(sourcePath: string, targetPath: string): Promise<void> {
-  await runFfmpegImageConversion(sourcePath, targetPath);
+  const extension = path.extname(sourcePath).slice(1).toLowerCase();
+
+  try {
+    await runFfmpegImageConversion(sourcePath, targetPath);
+  } catch (ffmpegError) {
+    if (!RAW_IMAGE_EXTENSIONS.has(extension)) {
+      throw ffmpegError;
+    }
+
+    await runImageMagickImageConversion(sourcePath, targetPath, (ffmpegError as Error).message);
+  }
 }
 
 function runFfmpegImageConversion(sourcePath: string, targetPath: string): Promise<void> {
@@ -349,6 +354,32 @@ function runFfmpegImageConversion(sourcePath: string, targetPath: string): Promi
     child.on('exit', (code) => {
       if (code === 0) resolve();
       else reject(new Error(extractFfmpegErrorDetail(stderr, code)));
+    });
+  });
+}
+
+function runImageMagickImageConversion(sourcePath: string, targetPath: string, ffmpegErrorMessage = ''): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const child = spawn('convert', [
+      sourcePath, '-auto-orient', '-quality', '92', targetPath,
+    ], { stdio: ['ignore', 'ignore', 'pipe'] });
+    let stderr = '';
+
+    child.stderr.on('data', (chunk) => { stderr += chunk.toString(); });
+    child.on('error', (error) => {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        reject(new Error(`ffmpeg failed: ${ffmpegErrorMessage || 'unknown error'} | ImageMagick convert is not installed.`));
+        return;
+      }
+      reject(error);
+    });
+    child.on('exit', (code) => {
+      if (code === 0) {
+        resolve();
+        return;
+      }
+      const convertDetail = extractFfmpegErrorDetail(stderr, code);
+      reject(new Error(`ffmpeg failed: ${ffmpegErrorMessage || 'unknown error'} | ImageMagick failed: ${convertDetail}`));
     });
   });
 }

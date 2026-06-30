@@ -107,7 +107,9 @@
   let pageInfoText = $state("");
   let pageInputValue = $state("1");
   let pageInputMax = $state("1");
+  let totalItems = $state(0);
   let pageSizeOptions: (number | string)[] = $state([]);
+  let showPagination = $derived(totalItems >= (Math.min(...pageSizeOptions.filter((n): n is number => typeof n === 'number')) || 10));
   let pageSizeMenuOpen = $state(false);
   let pageSizeMenuLeft = $state(false);
   let pageSizeDisplay = $state("20");
@@ -769,7 +771,6 @@
   async function initializeApp(initialZoomValue?: string | null) {
     selectedExtensionsList = [...ui.requestedExtensions].sort();
     updateSelectedCount();
-    await loadExtensions();
     await loadFiles();
     syncLocationState();
     if (pendingInitialLightboxPath) {
@@ -785,20 +786,6 @@
         }
       }
     }
-  }
-
-  async function loadExtensions() {
-    const query = new URLSearchParams({ dir: ui.currentDir });
-    const response = await fetch("/api/extensions?" + query.toString(), {
-      headers: getAuthHeaders(),
-    });
-    if (response.status === 401) {
-      forceLogout("Session expired: please log in again");
-      return;
-    }
-    const data = await response.json();
-    availableExtensions = data.extensions;
-    selectedExtensionsList = [...ui.requestedExtensions].sort();
   }
 
   async function loadFiles() {
@@ -836,6 +823,10 @@
       ui.selectedExtensions.clear();
       selectedExtensionsList = [];
     }
+    if (data.extensions) {
+      availableExtensions = data.extensions;
+    }
+    totalItems = data.directories.length + data.total;
     pageSizeOptions = data.pageSizeOptions;
     ui.page = data.page;
     ui.totalPages = data.totalPages;
@@ -913,7 +904,6 @@
     selectedExtensionsList = [...ui.requestedExtensions].sort();
     ui.page = 1;
     try {
-      await loadExtensions();
       await loadFiles();
       syncLocationState();
     } catch {}
@@ -932,7 +922,6 @@
     ui.currentDir = relativePath;
     ui.page = 1;
     try {
-      await loadExtensions();
       await loadFiles();
       syncLocationState();
     } catch {}
@@ -1232,7 +1221,6 @@
       }
 
       fileInputVersion += 1;
-      await loadExtensions();
       await loadFiles();
       statusText = "Uploaded: " + uploadedNames.join(", ");
     } catch (error: any) {
@@ -1509,7 +1497,6 @@
     updateSelectedCount();
     deletePending = false;
     statusText = "Deleted " + data.deleted.length + " item(s)";
-    await loadExtensions();
     await loadFiles();
   }
 
@@ -1557,7 +1544,6 @@
       createFolderDialogOpen = false;
       createFolderDialogName = "";
       statusText = 'Created folder "' + trimmedFolderName + '"';
-      await loadExtensions();
       await loadFiles();
     } finally {
       createFolderPending = false;
@@ -2991,6 +2977,21 @@
               Create folder
             </button>
           {/if}
+          <button
+            aria-label="Refresh"
+            onclick={() => loadFiles()}
+            type="button"
+            class="group relative inline-flex h-9 w-9 items-center justify-center rounded-full border border-slate-700 bg-slate-950 text-slate-100 transition hover:border-cyan-500 hover:text-cyan-300"
+          >
+            <svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"
+              ><path
+                fill-rule="evenodd"
+                d="M15.312 11.424a5.5 5.5 0 0 1-9.201 2.466l-.312-.311h2.433a.75.75 0 0 0 0-1.5H3.989a.75.75 0 0 0-.75.75v4.242a.75.75 0 0 0 1.5 0v-2.43l.31.31a7 7 0 0 0 11.712-3.138.75.75 0 0 0-1.449-.39Zm1.23-3.723a.75.75 0 0 0 .219-.53V2.929a.75.75 0 0 0-1.5 0V5.36l-.31-.31A7 7 0 0 0 3.239 8.188a.75.75 0 1 0 1.448.388A5.5 5.5 0 0 1 13.89 6.11l.312.31h-2.432a.75.75 0 0 0 0 1.5h4.243a.75.75 0 0 0 .53-.219Z"
+                clip-rule="evenodd"
+              /></svg
+            >
+            {@render tooltip("Refresh")}
+          </button>
         </div>
       {/if}
 
@@ -3380,6 +3381,7 @@
         </div>
       {/if}
 
+      {#if showPagination}
       <div
         class="mt-5 flex flex-wrap items-center gap-3 text-sm text-slate-400"
       >
@@ -3497,6 +3499,7 @@
           </div>
         </div>
       </div>
+      {/if}
     </section>
   </main>
 {/if}

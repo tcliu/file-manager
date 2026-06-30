@@ -48,6 +48,13 @@
 - When total selected size exceeds `maxZipSize`, the Zip button is disabled with a warning text.
 - The upload dropzone panel only contains the Upload button and drop target — selection actions were moved to the action bar.
 
+## Pagination Design
+
+- Pagination controls (prev/next buttons, page input, page size selector) are hidden when the total item count is below the minimum page size (derived from the first numeric entry in page size options).
+- Page size options: `10`, `20`, `50`, `100`, `200`, `500`, `All`.
+- Default page size is `20`.
+- A refresh button with a circular-arrow SVG icon and tooltip is placed in the action bar (above the folders/files listing), always visible when items are present.
+
 ## Name / Extension Filter Design
 
 - Extension filter buttons (`.ext`) are displayed in a flex row below the toolbar, toggled on/off via server-side query parameter `ext`.
