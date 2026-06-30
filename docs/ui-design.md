@@ -27,7 +27,7 @@ The UI is optimized for fast browsing of media-heavy directories while staying s
 
 Top-level layout sections:
 
-- Header with title, session state, folder/file summary, optional total size, and logout action.
+- Header with title, session state, combined folder/file summary (each segment hidden when 0), optional total size, and logout action.
 - Navigation and controls row.
 - Extension filter chip row.
 - Upload dropzone and bulk actions when the current directory is inside the configured upload subtree.
@@ -59,6 +59,8 @@ Top-level layout sections:
 - Better for visual browsing.
 - Directories are displayed as folder cards.
 - Files are displayed as preview cards.
+- The filename and extension badge appear on the same row (badge shrink-0 after truncated name).
+- A second metadata row shows size, optional image dimensions, and modification date with tight `|` separators.
 - Images show thumbnails.
 - Videos show thumbnail/progress while browser-playable output is prepared.
 - Other files show extension-based placeholder text.
@@ -75,7 +77,8 @@ Top-level layout sections:
 
 - Large drag-and-drop target encourages direct interaction.
 - Upload button mirrors dropzone behavior.
-- Action row includes create folder, upload, zip selected, and delete selected buttons.
+- Selection actions (zip, delete, create folder) are in a separate action bar above the listing, enabled only when items are selected.
+- The upload dropzone panel only contains the Upload button and drop target.
 - Upload progress is shown with label, percentage, and progress bar.
 - Filename conflicts are resolved through a dedicated dialog.
 
@@ -87,14 +90,15 @@ Top-level layout sections:
 - Metadata header.
 - Zoom in/out buttons and zoom preset menu.
 - Supports `fit` plus explicit zoom levels.
-- Keyboard navigation for previous/next and close.
+- Keyboard shortcuts for navigation (ArrowLeft/Right), zoom (ArrowUp/Down), and close (Escape).
+- Mouse wheel zoom in/out.
 - Pointer-based pan support when zoomed.
 
 ### Video Lightbox
 
 - Full-screen overlay.
 - Preparation progress state before playback is available.
-- Shared playback synchronization between grid and lightbox surfaces.
+- Shared playback synchronization between grid and lightbox surfaces (playhead, playing state synced via `SharedVideoPlaybackEntry`).
 
 ### Archive Lightbox
 
@@ -107,7 +111,7 @@ Top-level layout sections:
 - Previous/next buttons.
 - Direct page number input.
 - Page size dropdown.
-- Supported page sizes: `10`, `20`, `50`, `100`, `All`.
+- Supported page sizes: `10`, `20`, `50`, `100`, `200`, `500`, `All`.
 - Default page size is `20`.
 
 ## Status and Empty States

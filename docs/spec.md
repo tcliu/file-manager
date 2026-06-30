@@ -26,7 +26,7 @@
 - Storage: direct filesystem access.
 - Server state: in-memory sessions plus in-memory image/video conversion status.
 - Client state: in-memory UI state plus browser `sessionStorage` for auth sessions.
-- Config: `.env` and `.env.local` loaded from `FILE_MANAGER_ROOT_DIR` or `process.cwd()`.
+- Config: `.env` and `.env.local` loaded from `FILE_MANAGER_ROOT_DIR` (or `file-manager-root-dir` env var) or `process.cwd()`.
 
 ## Configuration
 
@@ -37,6 +37,7 @@ Supported config keys:
 - `session-expiry-ms`
 - `upload-dir`
 - `root-dir`
+- `max-zip-size`
 
 ### `root-dir`
 
@@ -59,6 +60,12 @@ root-dir=/Users/me/Photos,/Users/me/Videos
 # relative to the configured base directory
 root-dir=../shared
 ```
+
+### `max-zip-size`
+
+- Defaults to `1073741824` (1 GB).
+- Supports `B`, `KB`, `MB`, `GB`, `TB` suffixes.
+- When the total selected size exceeds this value, the Zip button is disabled.
 
 ### `upload-dir`
 
@@ -154,6 +161,8 @@ root-dir=../shared
 - `POST /api/create_folder`
 - `POST /api/zip-selection`
 - `POST /api/delete-selection`
+- `GET /api/selection-size`
+- `POST /api/selection-size`
 - `GET /api/video-preparation`
 - `GET /api/archive-contents`
 - `GET /media`
@@ -186,6 +195,6 @@ Pagination, page size, and list/grid mode are client state and request parameter
 - Thumbnail generation uses `sharp` for standard images.
 - `.arw` browser-preview conversion uses `ffmpeg` first, then ImageMagick `convert` as a fallback.
 - Video conversion and video thumbnail generation require `ffmpeg`.
-- Archive listing/download relies on `unzip` or `zipinfo`.
+- Archive listing/download relies on `yauzl`.
 - Zip export creation uses the `archiver` package.
 - Logging is structured line-based stdout logging.

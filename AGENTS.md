@@ -3,7 +3,7 @@
 - This is a SvelteKit port of the file-manager.mjs standalone server.
 - The original `file-manager.mjs` is preserved as the source of reference and must not be modified.
 - Use snake_case for API endpoint paths and query parameters.
-- Use Tailwind CSS v4 for styling (browser CDN).
+- Use Tailwind CSS v4 for styling (Vite plugin `@tailwindcss/vite`).
 - Session tokens are stored in sessionStorage on the client and a global Map on the server.
 - For generated SQL DDL, use multi-line `create table` statements.
 - For generated SQL DDL, keep related `create index` statements adjacent to the table they belong to.
@@ -35,6 +35,11 @@
 - Outside-click dismissal is handled via a `$effect` with a `mousedown` event listener on `document`. Blur dismissal uses `onfocusout` on the container div, checking `e.relatedTarget`.
 - (Example implementations: `pageSizeContainerRef` in FileManager.svelte, `imageFormatContainerRef` in CompressDialog.svelte)
 
+## Summary Stats Design
+
+- The header shows a combined summary of folder count, file count, and total size separated by `|`.
+- Each stat segment is only displayed when its value is greater than 0 (e.g., "3 folders | 5 files | 1.2 GB" or just "5 files | 1.2 GB" when there are no folders).
+
 ## Selection Action Bar Design
 
 - A horizontal button bar (`h-9`, `text-xs`, `gap-1.5`) is displayed above the folders/files listing whenever items are present on the page.
@@ -57,6 +62,12 @@
 - `directoriesAllSelected` / `filesAllSelected` derived values check `ui.selectedFiles.has()` for every visible item.
 - `directoriesSomeSelected` / `filesSomeSelected` drive the indeterminate state via `$effect` on the checkbox DOM element.
 - The underlying per-item checkboxes use `ui.selectedFiles.has(path)` — the Set is replaced with a new instance (`new Set(ui.selectedFiles)`) after every mutation to guarantee Svelte 5 reactivity.
+
+## Grid View File Card Design
+
+- File cards display the filename and extension badge on the same row (flex row with the filename `truncate min-w-0` and the badge as `shrink-0`).
+- Below that, a second row shows size, optional image dimensions, and modification date separated by `|` with reduced gap (`-mx-1` on each separator).
+- The thumbnail/icon area has hover-revealed action buttons for image/video/zip files.
 
 ## Zip Compress Dialog Design
 

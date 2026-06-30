@@ -113,7 +113,7 @@ Key route groups:
 ## Archive Design
 
 - Only `.zip` preview is supported.
-- Archive listing is read through `unzip -Z -l -T` or `zipinfo -l -T`.
+- Archive listing is read through `yauzl` (async iterator over zip entries).
 - Archive entries are not extracted globally; requested entries are streamed on demand.
 - Selection zip export creation uses `archiver`.
 
@@ -138,6 +138,7 @@ Key route groups:
 - filters and pagination
 - uploads and conflict handling
 - selection state
+- selection action bar (zip, delete, create folder)
 - create-folder flow
 - lightbox state
 - archive preview state
@@ -162,7 +163,7 @@ This enables refresh-safe navigation and deep linking for the current folder, fi
 
 ## Styling Design
 
-- Tailwind CSS v4 is imported through `src/styles.css` and built with the Vite Tailwind plugin.
+- Tailwind CSS v4 via `@tailwindcss/vite` Vite plugin, importing `@import "tailwindcss"` in `src/styles.css`.
 - Repeated utility combinations are collapsed into small `fm-*` helper classes in `src/styles.css`.
 - Component markup still uses utility classes directly where that remains the clearest representation.
 
