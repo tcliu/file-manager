@@ -80,7 +80,7 @@ Top-level layout sections:
 - Selection actions (zip, delete, create folder) are in a separate action bar above the listing, enabled only when items are selected.
 - The upload dropzone panel only contains the Upload button and drop target.
 - Upload progress is shown with label, percentage, and progress bar.
-- Filename conflicts are resolved through a dedicated dialog.
+- Filename conflicts are detected server-side during upload; the current flow surfaces the upload error rather than running a live rename/overwrite dialog.
 
 ## Media Preview UX
 

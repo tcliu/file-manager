@@ -63,9 +63,10 @@ Key route groups:
 
 ## Auth Gate Design
 
-- `src/hooks.server.ts` enforces auth for page/API routes when auth is enabled.
-- Public paths are `/`, `/api/login`, and `/api/logout`.
-- Media/download paths are handled separately to support direct browser requests.
+- `src/hooks.server.ts` enforces auth for page, API, media, and download routes when auth is enabled.
+- Public paths are `/`, `/api/login`, `/api/logout`, and `/api/zip-download`.
+- Session-gated requests may authenticate with `x-session-token` or a `token` query param.
+- `/api/zip-download` is public only in the sense that it bypasses session auth in `hooks.server.ts`; the route validates its own short-lived zip download token.
 - Server session records are stored in `globalThis.__fileManagerSessions`.
 - Valid sessions are exposed to the request through `event.locals.session`.
 
@@ -129,14 +130,15 @@ Key route groups:
 - `FileManager.svelte`: top-level browser state and orchestration
 - `Login.svelte`: auth form and remembered credential restore
 - `Lightbox.svelte`: image/video/archive preview surface
-- `ConfirmDialog.svelte`, `UploadConflictDialog.svelte`, `CreateFolderDialog.svelte`: focused modal flows
+- `ConfirmDialog.svelte`, `CreateFolderDialog.svelte`, `CompressDialog.svelte`: active modal flows
+- `UploadConflictDialog.svelte`: present in the component set, but not currently wired into the live upload request loop
 
 ### Primary Client Responsibilities
 
 - session handling
 - navigation and URL sync
 - filters and pagination
-- uploads and conflict handling
+- uploads and progress handling
 - selection state
 - selection action bar (zip, delete, create folder)
 - create-folder flow
@@ -155,11 +157,14 @@ Key route groups:
 The client syncs selected navigation state into the URL:
 
 - current directory via `p`
+- current page via `page`
+- current page size via `page-size`
+- current name filter via `name_filter`
 - extension filters via repeated `ext`
 - open lightbox path via `f`
 - image zoom state via `z`
 
-This enables refresh-safe navigation and deep linking for the current folder, filters, and lightbox state.
+This enables refresh-safe navigation and deep linking for the current folder, pagination state, filters, and lightbox state.
 
 ## Styling Design
 
@@ -186,10 +191,11 @@ This enables refresh-safe navigation and deep linking for the current folder, fi
 - Filesystem and media concerns are still tightly coupled to one app runtime.
 - Some legacy endpoint naming remains mixed (`create_folder` alongside kebab-case routes).
 - Client state is still centralized in a large `FileManager` component.
+- Some helper routes and UI paths remain present but are not part of the main live flow (`/api/upload-target`, `UploadConflictDialog.svelte`).
 
 ## Recommended Future Refactors
 
 - Split `FileManager.svelte` into smaller stateful view modules.
 - Standardize API route naming if backward compatibility is not needed.
 - Add tests around auth behavior, path resolution, and multi-root browsing.
-- Add explicit docs for media/download auth handling if that behavior is tightened or redesigned.
+- Either wire the upload conflict dialog into the active upload flow or remove the unused path.

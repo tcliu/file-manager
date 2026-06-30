@@ -97,6 +97,8 @@ When multiple roots are configured:
 - If `password` is empty, auth is disabled.
 - Session tokens are stored in `sessionStorage` on the client.
 - Server sessions are stored in a global in-memory `Map`.
+- Media and download links include a `token` query parameter so direct browser requests can still authenticate.
+- `/api/zip-download` uses a short-lived zip download token rather than the main login session token.
 - The login screen has a Remember me option that stores the username and base64-encoded password in `localStorage` on that browser.
 
 ## Runtime Notes
@@ -106,11 +108,13 @@ When multiple roots are configured:
 - Generated browser-preview images/videos are stored under `.processed`.
 - Video previews are converted to browser-playable `.mp4` files on demand.
 - `.zip` archives can be browsed in the lightbox and downloaded entry-by-entry.
+- Uploads stream directly to the server rather than buffering the full multipart request in memory.
 - Selected files/directories can be zipped via the selection action bar above the file listing. The zip dialog supports:
   - Custom filename (defaults to `{name}.zip` for single items, `{timestamp}.zip` for multiple).
   - Image resize and format conversion (JPEG/PNG) when selected images share the same dimensions.
   - Quality control and aspect-ratio-locked dimension editing.
   - Multi-item zip wraps files in a folder named after the archive.
+- Upload filename conflicts are currently reported as upload errors; the dedicated rename/overwrite conflict dialog is present in the codebase but not wired into the active upload loop.
 - A name filter input in the breadcrumb trail filters files and directories server-side by case-insensitive substring match (debounced, resets pagination).
 - Extension filter chips can be toggled to narrow the listing to specific file types.
 - Section header checkboxes provide select-all / deselect-all for Folders and Files separately, with indeterminate state for partial selection.
@@ -120,3 +124,4 @@ When multiple roots are configured:
 - `docs/spec.md`: product and behavior specification
 - `docs/ui-design.md`: UI structure and interaction design
 - `docs/app-design.md`: architecture and implementation design
+- `docs/refactor-plan.md`: recommended refactor roadmap for client state and server policy boundaries

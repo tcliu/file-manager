@@ -83,6 +83,7 @@ root-dir=../shared
 - The login screen Remember me option stores username and base64-encoded password in `localStorage`.
 - Authenticated API requests use `x-session-token`.
 - Client-generated media and download URLs also include `token` query params.
+- `src/hooks.server.ts` treats `/api/zip-download` separately from session-gated routes because zip retrieval uses a short-lived download token instead of a login session token.
 
 ## Core User Flows
 
@@ -90,7 +91,8 @@ root-dir=../shared
 
 - User opens `/`.
 - App shows either login UI or browser UI.
-- Browser fetches `/api/files` and `/api/extensions` for the current directory.
+- Browser fetches `/api/files` for the current directory.
+- `/api/files` returns the current page of files plus the available extension filter values for that directory.
 - Root-level multi-root browsing shows configured root basenames as folder entries and no files.
 
 ### Filter by extension
@@ -102,8 +104,9 @@ root-dir=../shared
 ### Upload files
 
 - User drags files onto the dropzone or opens the file picker.
-- App checks `/api/upload-target` for naming conflicts.
-- User can overwrite, rename, or cancel.
+- App uploads files directly to `/api/upload`, one file request at a time.
+- The upload endpoint can reject a conflicting filename with `409` and a suggested name.
+- The current client flow surfaces upload errors directly; the dedicated rename/overwrite conflict dialog component exists in the codebase but is not wired into the live upload loop.
 - Files are uploaded into the current directory.
 - Upload UI is only available when the current directory is inside the configured upload subtree.
 
@@ -142,6 +145,7 @@ root-dir=../shared
 
 - User selects items in the current directory.
 - App creates a temporary zip and streams it back.
+- When the archive is ready, the browser downloads it through `/api/zip-download?token=...` using a short-lived download ticket.
 
 ### Delete selection
 
@@ -160,8 +164,8 @@ root-dir=../shared
 - `POST /api/upload`
 - `POST /api/create_folder`
 - `POST /api/zip-selection`
+- `GET /api/zip-download`
 - `POST /api/delete-selection`
-- `GET /api/selection-size`
 - `POST /api/selection-size`
 - `GET /api/video-preparation`
 - `GET /api/archive-contents`
@@ -177,11 +181,14 @@ root-dir=../shared
 The browser syncs these values into the URL:
 
 - `p`: current directory
+- `page`: current page
+- `page-size`: current page size
+- `name_filter`: current name filter
 - `ext`: selected extensions
 - `f`: open lightbox file path
 - `z`: image lightbox zoom state
 
-Pagination, page size, and list/grid mode are client state and request parameters, but are not written into the browser URL.
+List/grid mode is client state and request state, but is not currently written into the browser URL.
 
 ## Constraints
 
