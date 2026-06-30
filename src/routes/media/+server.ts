@@ -4,7 +4,7 @@ import { createReadStream } from 'node:fs';
 import path from 'node:path';
 import type { RequestHandler } from './$types';
 import { resolveListedFilePath } from '$lib/server/file-utils';
-import { getInlineContentType } from '$lib/server/constants';
+import { getInlineContentType, getContentDisposition } from '$lib/server/constants';
 import { IMAGE_EXTENSIONS } from '$lib/server/constants';
 import { resolveInlineMedia } from '$lib/server/video';
 import { logAccess } from '$lib/server/logging';
@@ -54,7 +54,7 @@ async function streamInlineFile(request: Request, filePath: string, fileStat: im
         'accept-ranges': 'bytes',
         'content-length': String(fileStat.size),
         'content-type': contentType,
-        'content-disposition': `inline; filename="${fileName}"`,
+        'content-disposition': getContentDisposition(fileName, 'inline'),
       },
     });
   }
@@ -108,7 +108,7 @@ async function streamInlineFile(request: Request, filePath: string, fileStat: im
       'content-length': String(contentLength),
       'content-range': `bytes ${rangeStart}-${rangeEnd}/${fileStat.size}`,
       'content-type': contentType,
-      'content-disposition': `inline; filename="${fileName}"`,
+      'content-disposition': getContentDisposition(fileName, 'inline'),
     },
   });
 }

@@ -6,6 +6,7 @@ declare global {
   }
 
   var __fileManagerSessions: Map<string, { username: string; expiresAt: number }> | undefined;
+  var __pendingZipDownloads: Map<string, { path: string; filename: string; expiresAt: number }> | undefined;
 }
 
 export {};

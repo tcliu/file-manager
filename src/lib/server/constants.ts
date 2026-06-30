@@ -16,7 +16,7 @@ export const RAW_IMAGE_EXTENSIONS = new Set(['arw']);
 
 export const IMAGE_EXTENSIONS = new Set([
   'arw', 'avif', 'bmp', 'gif', 'heic', 'heif', 'jpeg', 'jpg',
-  'png', 'svg', 'webp'
+  'pdf', 'png', 'svg', 'webp',
 ]);
 
 export const VIDEO_EXTENSIONS = new Set([
@@ -39,10 +39,16 @@ export function getInlineContentType(filePath: string): string {
     case 'mov': return 'video/quicktime';
     case 'mpeg':
     case 'mpg': return 'video/mpeg';
+    case 'pdf': return 'application/pdf';
     case 'png': return 'image/png';
     case 'svg': return 'image/svg+xml';
     case 'webm': return 'video/webm';
     case 'webp': return 'image/webp';
     default: return 'application/octet-stream';
   }
+}
+
+export function getContentDisposition(fileName: string, type: 'inline' | 'attachment'): string {
+  const safe = fileName.replaceAll('"', '').replace(/[^\x20-\x7E]/g, '?');
+  return `${type}; filename="${safe}"; filename*=UTF-8''${encodeURIComponent(fileName)}`;
 }

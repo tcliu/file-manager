@@ -411,8 +411,10 @@
           {/if}
 
           {#if mode === "zip"}
+            <!-- svelte-ignore a11y_no_static_element_interactions -->
             <div
               class="flex max-h-full w-full max-w-5xl flex-col rounded-xl border border-slate-800 bg-slate-900/90 p-4 shadow-2xl shadow-slate-950/50 sm:p-5"
+              onclick={(e) => e.stopPropagation()}
             >
               <div
                 class="flex flex-wrap items-center gap-2 border-b border-slate-800 pb-3"

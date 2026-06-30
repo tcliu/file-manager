@@ -2,8 +2,10 @@ import { error } from '@sveltejs/kit';
 import { stat, mkdir, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
-import { mkdtemp, rm } from 'node:fs/promises';
-import { createReadStream, createWriteStream } from 'node:fs';
+import { rm } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
+import { createWriteStream } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import sharp from 'sharp';
 import archiver from 'archiver';
 import type { RequestHandler } from './$types';
@@ -111,15 +113,27 @@ export const POST: RequestHandler = async ({ request, url }) => {
     resizeAllFiles = await collectFiles(currentDirectoryPath, selectedItems, requestedFolderName);
   }
 
+  if (!globalThis.__pendingZipDownloads) {
+    globalThis.__pendingZipDownloads = new Map();
+    setInterval(() => {
+      const now = Date.now();
+      for (const [key, entry] of globalThis.__pendingZipDownloads!) {
+        if (now >= entry.expiresAt) {
+          globalThis.__pendingZipDownloads!.delete(key);
+          rm(entry.path, { force: true }).catch(() => {});
+        }
+      }
+    }, 600000);
+  }
+
+  const zipToken = randomUUID();
+  const zipPath = path.join(tmpdir(), `file-manager-zip-${zipToken}.zip`);
+
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
-      let temporaryDir: string | undefined;
       let resizeCleanupDir: string | undefined;
 
       try {
-        temporaryDir = await mkdtemp(path.join(tmpdir(), 'file-manager-zip-'));
-        const zipPath = path.join(temporaryDir, archiveName);
-
         function sendProgress(percent: number) {
           controller.enqueue(new TextEncoder().encode(JSON.stringify({ p: percent }) + '\n'));
         }
@@ -200,31 +214,28 @@ export const POST: RequestHandler = async ({ request, url }) => {
         }
 
         const zipStat = await stat(zipPath);
+        const expiresAt = Date.now() + 3600000;
 
         logAccess({ request }, 'zip_complete', {
           archive_size: zipStat.size,
           display_name: displayName,
         });
 
-        controller.enqueue(new TextEncoder().encode(JSON.stringify({ done: true, size: zipStat.size }) + '\n'));
-
-        const readStream = createReadStream(zipPath);
-        await new Promise<void>((resolve, reject) => {
-          readStream.on('data', (chunk: Buffer | string) => {
-            if (typeof chunk !== 'string') controller.enqueue(chunk);
-          });
-          readStream.on('end', resolve);
-          readStream.on('error', reject);
+        globalThis.__pendingZipDownloads!.set(zipToken, {
+          path: zipPath, filename: displayName, expiresAt,
         });
 
+        controller.enqueue(new TextEncoder().encode(JSON.stringify({
+          done: true, token: zipToken, size: zipStat.size, filename: displayName,
+        }) + '\n'));
         controller.close();
       } catch (err) {
+        await rm(zipPath, { force: true }).catch(() => {});
         logAccess({ request }, 'zip_error', {
           error: err instanceof Error ? err.message : String(err),
         });
         controller.error(err);
       } finally {
-        if (temporaryDir) rm(temporaryDir, { recursive: true, force: true }).catch(() => {});
         if (resizeCleanupDir) rm(resizeCleanupDir, { recursive: true, force: true }).catch(() => {});
       }
     },
@@ -232,9 +243,6 @@ export const POST: RequestHandler = async ({ request, url }) => {
 
   return new Response(stream as any, {
     status: 200,
-    headers: {
-      'content-type': 'application/zip',
-      'content-disposition': `attachment; filename="${displayName}"`,
-    },
+    headers: { 'content-type': 'text/plain' },
   });
 };

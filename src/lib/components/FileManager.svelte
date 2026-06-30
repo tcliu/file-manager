@@ -1354,110 +1354,51 @@
     }
     try {
       const reader = response.body!.getReader();
-      const chunks: Uint8Array[] = [];
-      let zipDataStart: number | null = null;
-      const doneMarker = new Uint8Array([0x22, 0x64, 0x6F, 0x6E, 0x65, 0x22]); // "done"
-      const newlineByte = 0x0A;
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let done = false;
+      let zipToken: string | undefined;
+      let zipFilename: string | undefined;
 
-      function findMarker(data: Uint8Array): number {
-        for (let i = 0; i <= data.length - doneMarker.length; i++) {
-          let match = true;
-          for (let j = 0; j < doneMarker.length; j++) {
-            if (data[i + j] !== doneMarker[j]) { match = false; break; }
-          }
-          if (match) return i;
-        }
-        return -1;
-      }
-
-      function concatSearchPrefix(): Uint8Array {
-        const maxBytes = 262144;
-        let take = 0;
-        for (const c of chunks) {
-          take += c.length;
-          if (take >= maxBytes) { take = maxBytes; break; }
-        }
-        const buf = new Uint8Array(take);
-        let off = 0;
-        for (const c of chunks) {
-          const copy = Math.min(c.length, take - off);
-          buf.set(c.subarray(0, copy), off);
-          off += copy;
-          if (off >= take) break;
-        }
-        return buf;
-      }
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (value) chunks.push(value);
-
-        if (zipDataStart === null && chunks.length > 0) {
-          const prefix = concatSearchPrefix();
-          const markerIdx = findMarker(prefix);
-          if (markerIdx !== -1) {
-            let lineEnd = markerIdx + doneMarker.length;
-            while (lineEnd < prefix.length && prefix[lineEnd] !== newlineByte) {
-              lineEnd++;
-            }
-            if (lineEnd < prefix.length) {
-              const endOfLine = lineEnd + 1;
-              const textPortion = new TextDecoder().decode(prefix.slice(0, endOfLine));
-              for (const line of textPortion.split('\n').filter(Boolean)) {
-                try { const d = JSON.parse(line); if (typeof d.p === 'number') compressDialogProgress = d.p; } catch {}
+      while (!done) {
+        const { done: streamDone, value } = await reader.read();
+        done = streamDone;
+        if (value) {
+          buffer += decoder.decode(value, { stream: !done });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() ?? "";
+          for (const line of lines) {
+            if (!line) continue;
+            try {
+              const data = JSON.parse(line);
+              if (typeof data.p === "number") {
+                compressDialogProgress = data.p;
               }
-              zipDataStart = endOfLine;
-            }
-          } else if (!done) {
-            let lastNewline = prefix.length - 1;
-            while (lastNewline >= 0 && prefix[lastNewline] !== newlineByte) {
-              lastNewline--;
-            }
-            if (lastNewline >= 0) {
-              const textPortion = new TextDecoder().decode(prefix.slice(0, lastNewline));
-              for (const line of textPortion.split('\n').filter(Boolean)) {
-                try { const d = JSON.parse(line); if (typeof d.p === 'number') compressDialogProgress = d.p; } catch {}
+              if (data.token) {
+                zipToken = data.token;
+                zipFilename = data.filename;
               }
-            }
+            } catch {}
           }
         }
-
-        if (done) break;
       }
 
       zipPending = false;
       compressDialogProgress = null;
 
-      let zipBlob: Blob;
-      if (zipDataStart !== null) {
-        let skip = zipDataStart;
-        const parts: BlobPart[] = [];
-        for (const c of chunks) {
-          if (skip >= c.length) {
-            skip -= c.length;
-            continue;
-          }
-          parts.push(c.slice(skip));
-          skip = 0;
-        }
-        zipBlob = new Blob(parts as unknown as BlobPart[], { type: 'application/zip' });
+      if (zipToken && zipFilename) {
+        compressDialogOpen = false;
+        compressDialogErrorText = "";
+        const link = document.createElement("a");
+        link.href = `/api/zip-download?token=${encodeURIComponent(zipToken)}`;
+        link.download = zipFilename;
+        link.click();
+        ui.selectedFiles = new Set();
+        updateSelectedCount();
+        statusText = "Downloaded zip: " + zipFilename;
       } else {
-        zipBlob = new Blob(chunks as unknown as BlobPart[], { type: 'application/zip' });
+        compressDialogErrorText = "Failed to create zip file";
       }
-
-      compressDialogOpen = false;
-      compressDialogFileName = "download.zip";
-      compressDialogErrorText = "";
-
-      const downloadUrl = URL.createObjectURL(zipBlob);
-      const link = document.createElement("a");
-      link.href = downloadUrl;
-      link.download = fileName;
-      link.click();
-      URL.revokeObjectURL(downloadUrl);
-      ui.selectedFiles = new Set();
-      updateSelectedCount();
-      statusText = "Downloaded zip: " + fileName;
     } catch {
       zipPending = false;
       compressDialogProgress = null;
@@ -3157,22 +3098,10 @@
                       onchange={(e) =>
                         setFileSelection(file.path, e.currentTarget.checked)}
                     />
-                    {#if isZipFile(file.extension)}
-                      <button
-                        type="button"
-                        class="min-w-0 flex-1 truncate text-left text-slate-100 underline-offset-4 transition hover:text-cyan-300 hover:underline"
-                        onclick={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          openLightbox(file.path);
-                        }}>{file.name}</button
-                      >
-                    {:else}
-                      <a
-                        class="min-w-0 flex-1 truncate text-slate-100 underline-offset-4 hover:text-cyan-300 hover:underline"
-                        href={getDownloadUrl(file.path)}>{file.name}</a
-                      >
-                    {/if}
+                    <a
+                      class="min-w-0 flex-1 truncate text-slate-100 underline-offset-4 hover:text-cyan-300 hover:underline"
+                      href={getDownloadUrl(file.path)}>{file.name}</a
+                    >
                     <span
                       class="rounded-full border border-slate-700 px-2 py-1 text-xs text-slate-400"
                       >.{file.extension || "none"}</span
@@ -3267,14 +3196,10 @@
                   >
                     <div class="group relative">
                       <div class="aspect-[4/3] bg-slate-950">
-                        {#if isImageFile(file.extension)}
+                        {#if isImageFile(file.extension) && thumbnailSupportedExtensions.includes(file.extension)}
                           <img
                             class="h-full w-full object-cover"
-                            src={thumbnailSupportedExtensions.includes(
-                              file.extension,
-                            )
-                              ? getThumbnailUrl(file.path)
-                              : getMediaUrl(file.path)}
+                            src={getThumbnailUrl(file.path)}
                             alt={file.name}
                             loading="lazy"
                           />
@@ -3357,7 +3282,7 @@
                           </div>
                         {/if}
                       </div>
-                      {#if isImageFile(file.extension) || isVideoFile(file.extension)}
+                      {#if (isImageFile(file.extension) && file.extension !== 'pdf') || isVideoFile(file.extension)}
                         <button
                           type="button"
                           aria-label="Open media viewer"
@@ -3411,7 +3336,7 @@
                       />
                     </div>
                     <div class="space-y-2 p-4">
-                      {#if isZipFile(file.extension) || isVideoFile(file.extension)}
+                      {#if isVideoFile(file.extension)}
                         <button
                           type="button"
                           class="block w-full truncate text-left font-semibold text-slate-100 underline-offset-4 transition hover:text-cyan-300 hover:underline"

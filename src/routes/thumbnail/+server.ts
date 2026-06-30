@@ -3,7 +3,7 @@ import { createReadStream } from 'node:fs';
 import path from 'node:path';
 import type { RequestHandler } from './$types';
 import { resolveListedFilePath } from '$lib/server/file-utils';
-import { IMAGE_EXTENSIONS, VIDEO_EXTENSIONS, THUMBNAIL_SUPPORTED_EXTENSIONS, getInlineContentType, RAW_IMAGE_EXTENSIONS } from '$lib/server/constants';
+import { IMAGE_EXTENSIONS, VIDEO_EXTENSIONS, THUMBNAIL_SUPPORTED_EXTENSIONS, getInlineContentType, getContentDisposition, RAW_IMAGE_EXTENSIONS } from '$lib/server/constants';
 import { ensureProcessedImage, ensureImageThumbnail } from '$lib/server/image';
 import { ensureVideoThumbnail } from '$lib/server/video';
 import { createReadableStreamFromNode } from '$lib/server/stream';
@@ -33,9 +33,15 @@ export const GET: RequestHandler = async ({ url, request }) => {
       });
     }
 
-    thumbnail = RAW_IMAGE_EXTENSIONS.has(extension)
-      ? await ensureProcessedImage(filePath, fileStat)
-      : await ensureImageThumbnail(filePath, fileStat);
+    try {
+      thumbnail = RAW_IMAGE_EXTENSIONS.has(extension)
+        ? await ensureProcessedImage(filePath, fileStat)
+        : await ensureImageThumbnail(filePath, fileStat);
+    } catch {
+      return new Response(`Thumbnail generation failed for .${extension}`, {
+        status: 415, headers: { 'content-type': 'text/plain; charset=utf-8' },
+      });
+    }
   } else if (VIDEO_EXTENSIONS.has(extension)) {
     thumbnail = await ensureVideoThumbnail(filePath, fileStat);
   } else {
@@ -56,7 +62,7 @@ export const GET: RequestHandler = async ({ url, request }) => {
     headers: {
       'content-length': String(thumbnailStat.size),
       'content-type': contentType,
-      'content-disposition': `inline; filename="${fileName}"`,
+      'content-disposition': getContentDisposition(fileName, 'inline'),
     },
   });
 };

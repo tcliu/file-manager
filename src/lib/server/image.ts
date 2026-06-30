@@ -308,14 +308,13 @@ async function createProcessedImage(sourcePath: string, processedPath: string): 
   const sourceRelativePath = path.relative(rootDir, sourcePath).split(path.sep).join('/');
   const outputRelativePath = path.relative(rootDir, processedPath).split(path.sep).join('/');
   const startedAt = Date.now();
-  const extension = path.extname(sourcePath).slice(1).toLowerCase();
 
   logEvent('server', 'file_convert_start', {
     kind: 'image', source_path: sourceRelativePath, output_path: outputRelativePath,
   });
 
   try {
-    await convertImageToJpeg(sourcePath, tempPath, extension);
+    await convertImageToJpeg(sourcePath, tempPath);
     await rename(tempPath, processedPath);
   } catch (error) {
     await rm(tempPath, { force: true }).catch(() => {});
@@ -332,13 +331,8 @@ async function createProcessedImage(sourcePath: string, processedPath: string): 
   });
 }
 
-async function convertImageToJpeg(sourcePath: string, targetPath: string, extension: string): Promise<void> {
-  try {
-    await runFfmpegImageConversion(sourcePath, targetPath);
-  } catch (error) {
-    if (!RAW_IMAGE_EXTENSIONS.has(extension)) throw error;
-    await runImageMagickImageConversion(sourcePath, targetPath, (error as Error).message);
-  }
+async function convertImageToJpeg(sourcePath: string, targetPath: string): Promise<void> {
+  await runFfmpegImageConversion(sourcePath, targetPath);
 }
 
 function runFfmpegImageConversion(sourcePath: string, targetPath: string): Promise<void> {
@@ -355,23 +349,6 @@ function runFfmpegImageConversion(sourcePath: string, targetPath: string): Promi
     child.on('exit', (code) => {
       if (code === 0) resolve();
       else reject(new Error(extractFfmpegErrorDetail(stderr, code)));
-    });
-  });
-}
-
-function runImageMagickImageConversion(sourcePath: string, targetPath: string, ffmpegErrorMessage = ''): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const child = spawn('convert', [sourcePath, '-auto-orient', '-quality', '92', targetPath],
-      { stdio: ['ignore', 'ignore', 'pipe'] });
-    let stderr = '';
-    child.stderr.on('data', (chunk) => { stderr += chunk.toString(); });
-    child.on('error', (error) => {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') reject(new Error(`ffmpeg failed: ${ffmpegErrorMessage || 'unknown error'} | ImageMagick convert is not installed.`));
-      else reject(error);
-    });
-    child.on('exit', (code) => {
-      if (code === 0) resolve();
-      else reject(new Error(`ffmpeg failed: ${ffmpegErrorMessage} | ImageMagick failed: ${extractFfmpegErrorDetail(stderr, code)}`));
     });
   });
 }

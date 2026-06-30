@@ -1,7 +1,7 @@
 import path from 'node:path';
-import { spawn } from 'node:child_process';
 import { createWriteStream } from 'node:fs';
 import { stat, readdir } from 'node:fs/promises';
+import yauzl from 'yauzl';
 import archiver from 'archiver';
 import { logEvent } from './logging';
 import { getRootDirPath } from './config';
@@ -59,55 +59,50 @@ function compareArchiveEntries(left: { path: string }, right: { path: string }):
   return left.path.localeCompare(right.path);
 }
 
-const ZIP_LISTING_LINE_REGEX =
-  /^\S+\s+\S+\s+\S+\s+(\d+)\s+\S+\s+\d+\s+\S+\s+(\d{4})(\d{2})(\d{2})\.(\d{2})(\d{2})(\d{2})\s+(.+)$/;
-
-function parseArchiveListingLine(line: string): {
-  path: string;
-  size: number;
-  modifiedAt: string;
-  isDirectory: boolean;
-} | null {
-  const match = ZIP_LISTING_LINE_REGEX.exec(line);
-  if (!match) return null;
-
-  const [, sizeString, year, month, day, hours, minutes, seconds, rawPath] = match;
-  const size = Number(sizeString);
-  const modifiedAt = `${year}-${month}-${day}T${hours}:${minutes}:${seconds}`;
-  const isDirectory = line.trim().startsWith('d') || rawPath.endsWith('/');
-  const path = rawPath.endsWith('/') ? rawPath.slice(0, -1) : rawPath;
-  const normalizedPath = normalizeArchiveEntryPath(path);
-  if (!normalizedPath) return null;
-
-  return { path: normalizedPath, size, modifiedAt, isDirectory };
+function formatZipTimestamp(date: Date): string {
+  const y = date.getFullYear();
+  const M = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  const h = String(date.getHours()).padStart(2, '0');
+  const m = String(date.getMinutes()).padStart(2, '0');
+  const s = String(date.getSeconds()).padStart(2, '0');
+  return `${y}-${M}-${d}T${h}:${m}:${s}`;
 }
 
 export async function listZipArchiveContents(filePath: string): Promise<ArchiveContents> {
-  const output = await readZipDirectoryListing(filePath);
+  const zipfile = await yauzl.openPromise(filePath, { lazyEntries: true });
   const directories = new Map<string, ArchiveDirectoryEntry>();
   const files: ArchiveFileEntry[] = [];
 
-  for (const rawLine of output.split(/\r?\n/)) {
-    const entry = parseArchiveListingLine(rawLine);
-    if (!entry) continue;
+  try {
+    for await (const entry of zipfile.eachEntry()) {
+      const rawPath = entry.fileName;
+      const isDirectory = rawPath.endsWith('/');
+      const cleanPath = isDirectory ? rawPath.slice(0, -1) : rawPath;
+      const normalizedPath = normalizeArchiveEntryPath(cleanPath);
+      if (!normalizedPath) continue;
 
-    const { path: normalizedPath, size, modifiedAt, isDirectory } = entry;
-    const parts = normalizedPath.split('/');
-    for (let index = 1; index < parts.length; index += 1) {
-      const directoryPath = parts.slice(0, index).join('/');
-      if (!directories.has(directoryPath)) {
-        directories.set(directoryPath, createArchiveDirectoryEntry(directoryPath, modifiedAt));
+      const modifiedAt = formatZipTimestamp(entry.getLastModDate());
+      const parts = normalizedPath.split('/');
+
+      for (let index = 1; index < parts.length; index += 1) {
+        const directoryPath = parts.slice(0, index).join('/');
+        if (!directories.has(directoryPath)) {
+          directories.set(directoryPath, createArchiveDirectoryEntry(directoryPath, modifiedAt));
+        }
       }
-    }
 
-    if (isDirectory) {
-      if (!directories.has(normalizedPath)) {
-        directories.set(normalizedPath, createArchiveDirectoryEntry(normalizedPath, modifiedAt));
+      if (isDirectory) {
+        if (!directories.has(normalizedPath)) {
+          directories.set(normalizedPath, createArchiveDirectoryEntry(normalizedPath, modifiedAt));
+        }
+        continue;
       }
-      continue;
-    }
 
-    files.push(createArchiveFileEntry(normalizedPath, size, modifiedAt));
+      files.push(createArchiveFileEntry(normalizedPath, entry.uncompressedSize, modifiedAt));
+    }
+  } finally {
+    zipfile.close();
   }
 
   return {
@@ -116,94 +111,47 @@ export async function listZipArchiveContents(filePath: string): Promise<ArchiveC
   };
 }
 
-function readZipDirectoryListing(filePath: string): Promise<string> {
-  const commands: [string, string[]][] = [
-    ['unzip', ['-Z', '-l', '-T', filePath]],
-    ['zipinfo', ['-l', '-T', filePath]],
-  ];
-  let lastError: Error | null = null;
+export async function streamZipArchiveEntry(filePath: string, entryPath: string, response: { write: (chunk: Uint8Array) => boolean; end: () => void; on: (event: string, cb: () => void) => void; writableEnded: boolean; headersSent: boolean; writeHead: (status: number, headers: Record<string, string | number>) => void }): Promise<void> {
+  const zipfile = await yauzl.openPromise(filePath, { lazyEntries: true });
 
-  return (async () => {
-    for (const [command, args] of commands) {
-      try {
-        return await runCommandCapture(command, args);
-      } catch (error) {
-        lastError = error as Error;
-      }
-    }
-    throw new Error(lastError?.message || 'Unable to read zip archive contents');
-  })();
-}
+  try {
+    for await (const entry of zipfile.eachEntry()) {
+      if (entry.fileName.replace(/\/$/, '') === entryPath) {
+        const readStream = await zipfile.openReadStreamPromise(entry);
 
-function runCommandCapture(command: string, args: string[]): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'] });
-    let stdout = '';
-    let stderr = '';
-    child.stdout.on('data', (chunk: Buffer) => { stdout += chunk.toString('utf8'); });
-    child.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString('utf8'); });
-    child.on('error', (error) => reject(new Error(`Failed to run ${command}: ${error.message}`)));
-    child.on('close', (code) => {
-      if (code === 0) { resolve(stdout); return; }
-      const details = stderr.trim() || stdout.trim() || `exit code ${code}`;
-      reject(new Error(`Failed to read zip archive with ${command}: ${details}`));
-    });
-  });
-}
+        await new Promise<void>((resolveStream, rejectStream) => {
+          readStream.on('data', (chunk: Buffer) => {
+            response.write(new Uint8Array(chunk));
+          });
+          readStream.on('end', () => {
+            if (!response.writableEnded) response.end();
+            resolveStream();
+          });
+          readStream.on('error', rejectStream);
+        });
 
-export function streamZipArchiveEntry(filePath: string, entryPath: string, response: { write: (chunk: Uint8Array) => boolean; end: () => void; on: (event: string, cb: () => void) => void; writableEnded: boolean; headersSent: boolean; writeHead: (status: number, headers: Record<string, string | number>) => void }): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const child = spawn('unzip', ['-p', filePath, entryPath], {
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-    let stderr = '';
-    let settled = false;
-
-    function finishWithError(error: Error) {
-      if (settled) return;
-      settled = true;
-      if (!child.killed) child.kill('SIGTERM');
-      reject(error);
-    }
-
-    function finishSuccessfully() {
-      if (settled) return;
-      settled = true;
-      resolve();
-    }
-
-    child.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString('utf8'); });
-    child.on('error', (error) => finishWithError(new Error(`Failed to run unzip: ${error.message}`)));
-    child.stdout.on('error', () => finishWithError(new Error('Failed to read archive entry')));
-    response.on('close', () => finishWithError(new Error('Download cancelled')));
-
-    child.stdout.pipe(response as any, { end: false });
-
-    child.on('close', (code) => {
-      if (settled) return;
-      if (code === 0) {
-        if (!response.writableEnded) response.end();
-        finishSuccessfully();
         return;
       }
-      finishWithError(new Error(stderr.trim() || `Failed to read archive entry (exit code ${code})`));
-    });
-  });
+    }
+    throw new Error(`Archive entry not found: ${entryPath}`);
+  } finally {
+    zipfile.close();
+  }
 }
 
-export function ensureZipArchiveEntryReadable(filePath: string, entryPath: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const child = spawn('unzip', ['-tqq', filePath, entryPath], {
-      stdio: ['ignore', 'ignore', 'pipe'],
-    });
-    let stderr = '';
-    child.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString('utf8'); });
-    child.on('error', (error) => reject(new Error(`Failed to run unzip: ${error.message}`)));
-    child.on('close', (code) => {
-      if (code === 0) { resolve(); return; }
-      reject(new Error(stderr.trim() || `Failed to validate archive entry (exit code ${code})`));
-    });
-  });
+export async function ensureZipArchiveEntryReadable(filePath: string, entryPath: string): Promise<void> {
+  const zipfile = await yauzl.openPromise(filePath, { lazyEntries: true });
+
+  try {
+    for await (const entry of zipfile.eachEntry()) {
+      if (entry.fileName.replace(/\/$/, '') === entryPath) {
+        return;
+      }
+    }
+    throw new Error(`Archive entry not found: ${entryPath}`);
+  } finally {
+    zipfile.close();
+  }
 }
 
 export async function countFilesRecursive(dirPath: string): Promise<number> {

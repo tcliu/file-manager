@@ -2,7 +2,7 @@ import { stat } from 'node:fs/promises';
 import path from 'node:path';
 import type { RequestHandler } from './$types';
 import { resolveListedFilePath } from '$lib/server/file-utils';
-import { getInlineContentType } from '$lib/server/constants';
+import { getInlineContentType, getContentDisposition } from '$lib/server/constants';
 import { listZipArchiveContents, ensureZipArchiveEntryReadable, streamZipArchiveEntry } from '$lib/server/archive';
 import { logAccess } from '$lib/server/logging';
 
@@ -72,7 +72,7 @@ export const GET: RequestHandler = async ({ url, request }) => {
       status: 200,
       headers: {
         'content-type': contentType,
-        'content-disposition': `attachment; filename="${fileName}"`,
+        'content-disposition': getContentDisposition(fileName, 'attachment'),
       },
     });
   }

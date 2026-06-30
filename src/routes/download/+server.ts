@@ -3,7 +3,7 @@ import { createReadStream } from 'node:fs';
 import path from 'node:path';
 import type { RequestHandler } from './$types';
 import { resolveListedFilePath } from '$lib/server/file-utils';
-import { IMAGE_EXTENSIONS } from '$lib/server/constants';
+import { IMAGE_EXTENSIONS, getContentDisposition } from '$lib/server/constants';
 import { logAccess } from '$lib/server/logging';
 import { createReadableStreamFromNode } from '$lib/server/stream';
 
@@ -34,7 +34,7 @@ export const GET: RequestHandler = async ({ url, request }) => {
       headers: {
         'content-type': 'application/octet-stream',
         'content-length': String(fileStat.size),
-        'content-disposition': `attachment; filename="${fileName}"`,
+        'content-disposition': getContentDisposition(fileName, 'attachment'),
       },
     });
   }
@@ -47,7 +47,7 @@ export const GET: RequestHandler = async ({ url, request }) => {
     headers: {
       'content-type': 'application/octet-stream',
       'content-length': String(fileStat.size),
-      'content-disposition': `attachment; filename="${fileName}"`,
+      'content-disposition': getContentDisposition(fileName, 'attachment'),
     },
   });
 };
