@@ -5,6 +5,66 @@
   import CreateFolderDialog from "./CreateFolderDialog.svelte";
   import CompressDialog from "./CompressDialog.svelte";
   import UploadConflictDialog from "./UploadConflictDialog.svelte";
+  import {
+    applyListingResponse,
+    buildFilesQuery,
+    movePage,
+    toggleRequestedExtension,
+    type BreadcrumbItem,
+    type FileListingResponse,
+  } from "./file-manager/file-listing";
+  import {
+    buildArchiveLightboxMetaItems,
+    buildArchivePreviewState,
+    buildLightboxZoomOptions,
+    buildMediaLightboxMetaItems,
+    getCurrentLightboxZoomPercent,
+    type LightboxMetaItem,
+    type ZoomOption,
+  } from "./file-manager/lightbox-state";
+  import {
+    createSharedVideoController,
+    type SharedVideoPlaybackEntry,
+  } from "./file-manager/shared-video";
+  import {
+    areAllItemsSelected,
+    areSomeItemsSelected,
+    countSelectedItems,
+    getCommonImageExtension,
+    getCommonImageInfo,
+    getSelectedTotalSize,
+    setSelectedFilePath,
+    setSelectedPaths,
+    summarizeSelection,
+  } from "./file-manager/selection-state";
+  import {
+    createUploadCompleteStatus,
+    createUploadProgressState,
+    createUploadStartStatus,
+    getTotalUploadBytes,
+    uploadCandidateWithXhr,
+  } from "./file-manager/upload-flow";
+  import {
+    clearSession,
+    createTokenizedFileUrl,
+    getAuthHeaders,
+    readSession,
+    touchSession,
+    writeSession,
+    type ClientSession,
+  } from "./file-manager/client-auth";
+  import {
+    createUploadCandidatesFromFileList,
+    getDropUploadCandidates,
+    isWithinConfiguredUploadDir,
+    normalizeClientRelativeDirectory,
+    type UploadCandidate,
+  } from "./file-manager/client-paths";
+  import { formatBytes, formatDateTime } from "./file-manager/formatters";
+  import {
+    readInitialLocationState as readInitialLocationStateFromUrl,
+    syncLocationState as syncLocationStateToUrl,
+  } from "./file-manager/location-state";
 
   interface Props {
     auth: { enabled: boolean; sessionExpiryMs: number; username: string };
@@ -23,46 +83,6 @@
     requiresConversion?: boolean;
   }
 
-  interface SharedVideoPlaybackEntry {
-    currentTime: number;
-    shouldResume: boolean;
-    preferredSurface: "grid" | "lightbox";
-  }
-
-  interface UploadCandidate {
-    file: File;
-    relativePath: string;
-  }
-
-  interface FileSystemEntryLike {
-    isFile: boolean;
-    isDirectory: boolean;
-    fullPath?: string;
-    name: string;
-  }
-
-  interface FileSystemFileEntryLike extends FileSystemEntryLike {
-    file: (
-      successCallback: (file: File) => void,
-      errorCallback?: (error: DOMException) => void,
-    ) => void;
-  }
-
-  interface FileSystemDirectoryReaderLike {
-    readEntries: (
-      successCallback: (entries: FileSystemEntryLike[]) => void,
-      errorCallback?: (error: DOMException) => void,
-    ) => void;
-  }
-
-  interface FileSystemDirectoryEntryLike extends FileSystemEntryLike {
-    createReader: () => FileSystemDirectoryReaderLike;
-  }
-
-  type DataTransferItemWithEntry = DataTransferItem & {
-    webkitGetAsEntry?: () => FileSystemEntry | null;
-  };
-
   let {
     auth,
     uploadDir,
@@ -72,7 +92,6 @@
     thumbnailSupportedExtensions,
   }: Props = $props();
 
-  const SESSION_STORAGE_KEY = "file-manager-auth";
   const LIGHTBOX_FIT_ZOOM_VALUE = "fit";
   const LIGHTBOX_ZOOM_LEVELS = [25, 50, 75, 100, 125, 150, 200, 300];
 
@@ -114,7 +133,7 @@
   let pageSizeMenuLeft = $state(false);
   let pageSizeDisplay = $state("20");
   let viewMode = $state<"list" | "grid">("grid");
-  let breadcrumbs: { label: string; path: string }[] = $state([
+  let breadcrumbs: BreadcrumbItem[] = $state([
     { label: "/", path: "" },
   ]);
   let availableExtensions: string[] = $state([]);
@@ -122,20 +141,6 @@
   let nameFilter = $state("");
   let directories: { name: string; path: string }[] = $state([]);
   let files: any[] = $state([]);
-  const directoriesAllSelected = $derived(
-    directories.length > 0 &&
-      directories.every((d) => ui.selectedFiles.has(d.path)),
-  );
-  const directoriesSomeSelected = $derived(
-    !directoriesAllSelected &&
-      directories.some((d) => ui.selectedFiles.has(d.path)),
-  );
-  const filesAllSelected = $derived(
-    files.length > 0 && files.every((f) => ui.selectedFiles.has(f.path)),
-  );
-  const filesSomeSelected = $derived(
-    !filesAllSelected && files.some((f) => ui.selectedFiles.has(f.path)),
-  );
   let selectedFilePaths: string[] = $state([]);
   let hasSelection = $state(false);
   let zipPending = $state(false);
@@ -161,8 +166,7 @@
     {},
   );
   let activeVideoPreparationPolls = new Set<string>();
-  const sharedVideoPlaybackByPath = new Map<string, SharedVideoPlaybackEntry>();
-  let sharedVideoSyncDepth = 0;
+  const sharedVideo = createSharedVideoController();
 
   let confirmDialogOpen = $state(false);
   let confirmDialogTitleText = $state("Delete selected files?");
@@ -199,6 +203,7 @@
   let lightboxMode = $state("");
   let lightboxPathValue = $state("");
   let lightboxImageUrl = $state("");
+  let lightboxImageError = $state(false);
   let lightboxVideoUrl = $state("");
   let lightboxVideoReady = $state(false);
   let lightboxVideoProgressLabel = $state(
@@ -222,8 +227,7 @@
   let lightboxZipErrorText = $state("");
   let lightboxImageAlt = $state("");
   let lightboxTitleValue = $state("");
-  let lightboxMetaItems: { key: string; text: string; badge: boolean }[] =
-    $state([]);
+  let lightboxMetaItems: LightboxMetaItem[] = $state([]);
   let lightboxPrevDisabled = $state(false);
   let lightboxNextDisabled = $state(false);
   let lightboxZoomValue = $state("fit");
@@ -233,11 +237,7 @@
   let lightboxCanPan = $state(false);
   let lightboxDragging = $state(false);
   let lightboxImageStyle: Record<string, string> = $state({});
-  let lightboxZoomOptions: {
-    value: string;
-    label: string;
-    sortValue: number;
-  }[] = $state([]);
+  let lightboxZoomOptions: ZoomOption[] = $state([]);
   let lightboxZoomLabel = $state("Fit");
 
   const ui = $state({
@@ -276,191 +276,37 @@
   });
 
   const selectedTotalSize = $derived(
-    [...ui.selectedFiles].reduce((sum, path) => {
-      const f = files.find((f: any) => f.path === path);
-      return sum + (f?.size ?? 0);
-    }, 0),
+    getSelectedTotalSize(ui.selectedFiles, files),
+  );
+  const directoriesAllSelected = $derived(
+    areAllItemsSelected(ui.selectedFiles, directories),
+  );
+  const directoriesSomeSelected = $derived(
+    areSomeItemsSelected(ui.selectedFiles, directories),
+  );
+  const filesAllSelected = $derived(
+    areAllItemsSelected(ui.selectedFiles, files),
+  );
+  const filesSomeSelected = $derived(
+    areSomeItemsSelected(ui.selectedFiles, files),
   );
   const zipSizeExceeded = $derived(selectedTotalSize > maxZipSize);
   const commonImageInfo = $derived.by(() => {
-    const imageFiles = [...ui.selectedFiles]
-      .map((path) => files.find((f: any) => f.path === path))
-      .filter((f): f is any => f && isImageFile(f.extension));
-    if (imageFiles.length === 0) return null;
-    const firstW = Number(imageFiles[0].width);
-    const firstH = Number(imageFiles[0].height);
-    if (!Number.isFinite(firstW) || !Number.isFinite(firstH) || firstW <= 0 || firstH <= 0) return null;
-    const allSame = imageFiles.every(
-      (f) => Number(f.width) === firstW && Number(f.height) === firstH,
-    );
-    if (!allSame) return null;
-    return { width: firstW, height: firstH };
+    return getCommonImageInfo(ui.selectedFiles, files, isImageFile);
   });
   const commonImageExtension = $derived.by(() => {
-    const imageExts = [...ui.selectedFiles]
-      .map((path) => files.find((f: any) => f.path === path))
-      .filter((f): f is any => f && isImageFile(f.extension))
-      .map((f) => f.extension.toLowerCase());
-    if (imageExts.length === 0) return null;
-    const first = imageExts[0];
-    return imageExts.every((e) => e === first) ? first : null;
+    return getCommonImageExtension(ui.selectedFiles, files, isImageFile);
   });
   const selectedDirCount = $derived(
-    [...ui.selectedFiles].filter((path) =>
-      directories.some((d) => d.path === path),
-    ).length,
+    countSelectedItems(ui.selectedFiles, directories),
   );
   const selectedFileCount = $derived(
-    [...ui.selectedFiles].filter((path) =>
-      files.some((f: any) => f.path === path),
-    ).length,
+    countSelectedItems(ui.selectedFiles, files),
   );
-
-  function isWithinConfiguredUploadDir(
-    currentDir: string,
-    configuredUploadDir: string,
-  ): boolean {
-    const normalizedCurrentDir = normalizeClientRelativeDirectory(currentDir);
-    const normalizedUploadDir =
-      normalizeClientRelativeDirectory(configuredUploadDir);
-
-    if (!normalizedUploadDir) {
-      return true;
-    }
-
-    const currentSegments = normalizedCurrentDir
-      ? normalizedCurrentDir.split("/")
-      : [];
-    const uploadSegments = normalizedUploadDir.split("/");
-
-    for (
-      let start = 0;
-      start <= currentSegments.length - uploadSegments.length;
-      start += 1
-    ) {
-      const matchesUploadDir = uploadSegments.every(
-        (segment, index) => currentSegments[start + index] === segment,
-      );
-
-      if (matchesUploadDir) {
-        return true;
-      }
-    }
-
-    return false;
-  }
 
   const inUploadDir = $derived(
     isWithinConfiguredUploadDir(ui.currentDir, uploadDir),
   );
-
-  function normalizeClientRelativeDirectory(relativeDir: string): string {
-    const parts = String(relativeDir || "").split("/");
-    const normalizedParts: string[] = [];
-    for (const part of parts) {
-      if (!part || part === ".") continue;
-      if (part === "..") throw new Error("Invalid directory path");
-      normalizedParts.push(part);
-    }
-    return normalizedParts.join("/");
-  }
-
-  function normalizeUploadCandidatePath(relativePath: string): string {
-    return normalizeClientRelativeDirectory(
-      String(relativePath || "").replaceAll("\\", "/"),
-    );
-  }
-
-  function createUploadCandidatesFromFileList(
-    fileList: FileList | null,
-  ): UploadCandidate[] {
-    if (!fileList?.length) {
-      return [];
-    }
-
-    return Array.from(fileList)
-      .map((file) => {
-        const relativePath = normalizeUploadCandidatePath(
-          file.webkitRelativePath || file.name,
-        );
-        return relativePath ? { file, relativePath } : null;
-      })
-      .filter((entry): entry is UploadCandidate => !!entry);
-  }
-
-  function readFileEntry(entry: FileSystemFileEntryLike): Promise<File> {
-    return new Promise((resolve, reject) => {
-      entry.file(resolve, reject);
-    });
-  }
-
-  function readDirectoryEntries(
-    reader: FileSystemDirectoryReaderLike,
-  ): Promise<FileSystemEntryLike[]> {
-    return new Promise((resolve, reject) => {
-      reader.readEntries(resolve, reject);
-    });
-  }
-
-  async function collectEntryUploadCandidates(
-    entry: FileSystemEntryLike,
-  ): Promise<UploadCandidate[]> {
-    if (entry.isFile) {
-      const file = await readFileEntry(entry as FileSystemFileEntryLike);
-      const relativePath = normalizeUploadCandidatePath(
-        entry.fullPath?.replace(/^\/+/, "") || file.name,
-      );
-      return relativePath ? [{ file, relativePath }] : [];
-    }
-
-    if (!entry.isDirectory) {
-      return [];
-    }
-
-    const reader = (entry as FileSystemDirectoryEntryLike).createReader();
-    const candidates: UploadCandidate[] = [];
-
-    while (true) {
-      const childEntries = await readDirectoryEntries(reader);
-
-      if (childEntries.length === 0) {
-        break;
-      }
-
-      for (const childEntry of childEntries) {
-        candidates.push(...(await collectEntryUploadCandidates(childEntry)));
-      }
-    }
-
-    return candidates;
-  }
-
-  async function getDropUploadCandidates(
-    dataTransfer: DataTransfer | null,
-  ): Promise<UploadCandidate[]> {
-    if (!dataTransfer) {
-      return [];
-    }
-
-    const items = Array.from(
-      dataTransfer.items || [],
-    ) as DataTransferItemWithEntry[];
-    const entries = items
-      .filter((item) => item.kind === "file")
-      .map((item) => item.webkitGetAsEntry?.() ?? null)
-      .filter((entry): entry is FileSystemEntry => !!entry);
-
-    if (entries.length === 0) {
-      return createUploadCandidatesFromFileList(dataTransfer.files);
-    }
-
-    const candidates = await Promise.all(
-      entries.map((entry) =>
-        collectEntryUploadCandidates(entry as unknown as FileSystemEntryLike),
-      ),
-    );
-    return candidates.flat();
-  }
 
   function normalizeLightboxZoomValue(value: string | null): string | null {
     if (!value) return null;
@@ -473,130 +319,24 @@
       : null;
   }
 
-  function normalizeExtensionValue(value: string): string {
-    const v = String(value ?? "")
-      .trim()
-      .toLowerCase()
-      .replace(/^\.+/, "");
-    return v && !v.includes("/") ? v : "";
-  }
-
-  function parseSelectedExtensionsParam(values: string[]): Set<string> {
-    const extensions = new Set<string>();
-    for (const rawValue of values) {
-      const normalizedValue = String(rawValue ?? "").trim();
-      if (!normalizedValue) continue;
-      for (const item of normalizedValue.split(",")) {
-        const ext = normalizeExtensionValue(item);
-        if (ext) extensions.add(ext);
-      }
-    }
-    return extensions;
-  }
-
-  function readInitialLocationState() {
-    if (typeof window === "undefined") {
-      return {
-        directory: "",
-        filePath: "",
-        zoomValue: null as string | null,
-        selectedExtensions: new Set<string>(),
-        page: 1,
-        pageSize: 20,
-        filename: "",
-      };
-    }
-    const url = new URL(window.location.href);
-    const relativePath = url.searchParams.get("p") ?? "";
-    const filePath = url.searchParams.get("f") ?? "";
-    const zoomValue = normalizeLightboxZoomValue(url.searchParams.get("z"));
-    const selectedExtensions = parseSelectedExtensionsParam(
-      url.searchParams.getAll("ext"),
-    );
-    const rawPage = url.searchParams.get("page");
-    const rawPageSize = url.searchParams.get("page-size");
-    const filename =
-      url.searchParams.get("name_filter") ??
-      url.searchParams.get("filename") ??
-      "";
-    let page = 1;
-    let pageSize: number | string = 20;
-    const parsedPage = parseInt(rawPage ?? "", 10);
-    if (Number.isFinite(parsedPage) && parsedPage > 0) page = parsedPage;
-    if (rawPageSize !== null) {
-      if (rawPageSize.toLowerCase() === "all") {
-        pageSize = "All";
-      } else {
-        const parsed = parseInt(rawPageSize, 10);
-        if (Number.isFinite(parsed) && parsed > 0) pageSize = parsed;
-      }
-    }
-    let directory = "";
-    let normalizedFilePath = "";
-    try {
-      directory = normalizeClientRelativeDirectory(relativePath);
-    } catch {
-      directory = "";
-    }
-    try {
-      normalizedFilePath = normalizeClientRelativeDirectory(filePath);
-    } catch {
-      normalizedFilePath = "";
-    }
-    if (normalizedFilePath) {
-      const parts = normalizedFilePath.split("/");
-      parts.pop();
-      directory = parts.join("/");
-    }
-    return {
-      directory,
-      filePath: normalizedFilePath,
-      zoomValue,
-      selectedExtensions,
-      page,
-      pageSize,
-      filename,
-    };
-  }
-
   let pendingInitialLightboxPath = "";
 
+  function readInitialLocationState() {
+    return readInitialLocationStateFromUrl(normalizeLightboxZoomValue);
+  }
+
   function syncLocationState() {
-    if (typeof window === "undefined") return;
-    const url = new URL(window.location.href);
-    if (ui.currentDir) {
-      url.searchParams.set("p", ui.currentDir);
-    } else {
-      url.searchParams.delete("p");
-    }
-    url.searchParams.set("page", String(ui.page));
-    url.searchParams.set("page-size", String(ui.pageSize));
-    if (nameFilter) {
-      url.searchParams.set("name_filter", nameFilter);
-    } else {
-      url.searchParams.delete("name_filter");
-    }
-    url.searchParams.delete("filename");
-    url.searchParams.delete("ext");
-    for (const ext of [...ui.requestedExtensions].sort()) {
-      url.searchParams.append("ext", ext);
-    }
-    if (lightboxOpen && ui.lightboxPath) {
-      url.searchParams.set("f", ui.lightboxPath);
-      if (lightboxMode === "image") {
-        url.searchParams.set("z", lightboxZoomValue);
-      } else {
-        url.searchParams.delete("z");
-      }
-    } else {
-      url.searchParams.delete("f");
-      url.searchParams.delete("z");
-    }
-    window.history.replaceState(
-      {},
-      "",
-      url.pathname + (url.search ? url.search : ""),
-    );
+    syncLocationStateToUrl({
+      currentDir: ui.currentDir,
+      page: ui.page,
+      pageSize: ui.pageSize,
+      nameFilter,
+      requestedExtensions: ui.requestedExtensions,
+      lightboxOpen,
+      lightboxPath: ui.lightboxPath,
+      lightboxMode,
+      lightboxZoomValue,
+    });
   }
 
   function isImageFile(extension: string): boolean {
@@ -611,28 +351,6 @@
     return String(extension || "").toLowerCase() === "zip";
   }
 
-  function formatBytes(bytes: number): string {
-    const units = ["B", "KB", "MB", "GB", "TB"];
-    let value = bytes;
-    let index = 0;
-    while (value >= 1000 && index < units.length - 1) {
-      value /= 1000;
-      index += 1;
-    }
-    return value.toFixed(2) + " " + units[index];
-  }
-
-  function formatDateTime(value: string): string {
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return "";
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, "0");
-    const day = String(date.getDate()).padStart(2, "0");
-    const hours = String(date.getHours()).padStart(2, "0");
-    const minutes = String(date.getMinutes()).padStart(2, "0");
-    const seconds = String(date.getSeconds()).padStart(2, "0");
-    return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
-  }
 
   function formatImageDimensions(file: any): string {
     const width = Number(file?.width);
@@ -647,52 +365,12 @@
     return width + " x " + height;
   }
 
-  function getAuthHeaders(): Record<string, string> {
-    const session = readSession();
-    if (!session) return {};
-    return { "x-session-token": session.token };
-  }
-
-  function readSession(): {
-    username: string;
-    token: string;
-    expiresAt: number;
-  } | null {
-    if (!authEnabled) {
-      return {
-        username: authUsername || "Guest",
-        token: "",
-        expiresAt: Date.now() + sessionExpiryMs,
-      };
-    }
-    const raw = sessionStorage.getItem(SESSION_STORAGE_KEY);
-    if (!raw) return null;
-    try {
-      const session = JSON.parse(raw);
-      if (
-        typeof session.expiresAt !== "number" ||
-        typeof session.token !== "string" ||
-        !session.token ||
-        Date.now() >= session.expiresAt
-      ) {
-        sessionStorage.removeItem(SESSION_STORAGE_KEY);
-        return null;
-      }
-      return session;
-    } catch {
-      sessionStorage.removeItem(SESSION_STORAGE_KEY);
-      return null;
-    }
-  }
-
-  function writeSession(username: string, token: string) {
-    const session = {
-      username,
-      token,
-      expiresAt: Date.now() + sessionExpiryMs,
-    };
-    sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
-    return session;
+  function getCurrentSession(): ClientSession | null {
+    return readSession({
+      authEnabled,
+      authUsername,
+      sessionExpiryMs,
+    });
   }
 
   function updateSessionInfo() {
@@ -700,7 +378,7 @@
       sessionInfoText = "Authentication disabled";
       return;
     }
-    const session = readSession();
+    const session = getCurrentSession();
     if (!session) {
       sessionInfoText = "Session expired";
       return;
@@ -714,7 +392,7 @@
       showApp();
       return;
     }
-    sessionStorage.removeItem(SESSION_STORAGE_KEY);
+    clearSession();
     ui.selectedFiles = new Set();
     loginStatusText = message;
     showLogin();
@@ -755,7 +433,7 @@
         loginStatusText = data.error ?? "Login failed";
         return;
       }
-      writeSession(loginUsername, data.token);
+      writeSession(loginUsername, data.token, sessionExpiryMs);
       loginStatusText = "";
       showApp();
       await initializeApp();
@@ -767,7 +445,10 @@
 
   async function handleLogout() {
     try {
-      await fetch("/api/logout", { method: "POST", headers: getAuthHeaders() });
+      await fetch("/api/logout", {
+        method: "POST",
+        headers: getAuthHeaders(getCurrentSession()),
+      });
     } catch {}
     forceLogout();
   }
@@ -793,7 +474,7 @@
   }
 
   async function loadFiles() {
-    if (!readSession()) {
+    if (!getCurrentSession()) {
       forceLogout("Session expired: please log in again");
       return;
     }
@@ -801,19 +482,17 @@
     loading = true;
     const requestId = ++loadFilesRequestId;
     try {
-      const query = new URLSearchParams({
-        dir: ui.currentDir,
-        page: String(ui.page),
-        pageSize: String(ui.pageSize),
-        view: viewMode,
-        name_filter: nameFilter,
+      const query = buildFilesQuery({
+        currentDir: ui.currentDir,
+        page: ui.page,
+        pageSize: ui.pageSize,
+        viewMode,
+        nameFilter,
+        requestedExtensions: ui.requestedExtensions,
       });
-      for (const extension of [...ui.requestedExtensions].sort()) {
-        query.append("ext", extension);
-      }
 
       const response = await fetch("/api/files?" + query.toString(), {
-        headers: getAuthHeaders(),
+        headers: getAuthHeaders(getCurrentSession()),
       });
       if (requestId !== loadFilesRequestId) return;
 
@@ -822,51 +501,54 @@
         return;
       }
 
-      const data = await response.json().catch(() => ({}));
+      const data = (await response.json().catch(() => ({}))) as Partial<
+        FileListingResponse
+      > & { error?: string };
       if (requestId !== loadFilesRequestId) return;
 
       if (!response.ok) {
         throw new Error(data.error ?? "Failed to load files");
       }
 
-      if (
-        data.selectedExtensions.length === 0 &&
-        ui.requestedExtensions.size > 0
-      ) {
+      touchSession();
+
+      const nextListing = applyListingResponse({
+        data: data as FileListingResponse,
+        requestedExtensionsSize: ui.requestedExtensions.size,
+        isImageFile,
+        isVideoFile,
+        formatBytes,
+      });
+
+      if (nextListing.requestedExtensionsCleared) {
         ui.requestedExtensions.clear();
         ui.selectedExtensions.clear();
         selectedExtensionsList = [];
       }
-      if (data.extensions) {
-        availableExtensions = data.extensions;
-      }
-      totalItems = data.directories.length + data.total;
-      pageSizeOptions = data.pageSizeOptions;
-      ui.page = data.page;
-      ui.totalPages = data.totalPages;
-      ui.currentDir = data.directory;
-      ui.visibleMediaFiles = data.files.filter(
-        (f: any) => isImageFile(f.extension) || isVideoFile(f.extension),
-      );
-      ui.totalMedia = data.totalMedia ?? 0;
-      ui.mediaOffset = data.mediaOffset ?? 0;
-      directories = data.directories;
-      files = data.files;
-      pageInfoText = String(data.totalPages);
-      pageInputValue = String(data.page);
-      pageInputMax = String(data.totalPages);
-      pageSizeDisplay = String(data.pageSize);
+      availableExtensions = nextListing.availableExtensions;
+      totalItems = nextListing.totalItems;
+      pageSizeOptions = nextListing.pageSizeOptions;
+      ui.page = nextListing.page;
+      ui.totalPages = nextListing.totalPages;
+      ui.currentDir = nextListing.currentDir;
+      ui.visibleMediaFiles = nextListing.visibleMediaFiles;
+      ui.totalMedia = nextListing.totalMedia;
+      ui.mediaOffset = nextListing.mediaOffset;
+      directories = nextListing.directories;
+      files = nextListing.files;
+      pageInfoText = nextListing.pageInfoText;
+      pageInputValue = nextListing.pageInputValue;
+      pageInputMax = nextListing.pageInputMax;
+      pageSizeDisplay = nextListing.pageSizeDisplay;
       pageSizeMenuOpen = false;
-      canGoPrev = data.page > 1;
-      canGoNext = data.page < data.totalPages;
-      syncBreadcrumbState();
-      summaryFolderText =
-        data.directories.length > 0 ? data.directories.length + " folders" : "";
-      summaryFileText = data.total > 0 ? data.total + " files" : "";
-      totalSizeText = data.total > 0 ? formatBytes(data.totalSize) : "";
+      canGoPrev = nextListing.canGoPrev;
+      canGoNext = nextListing.canGoNext;
+      breadcrumbs = nextListing.breadcrumbs;
+      summaryFolderText = nextListing.summaryFolderText;
+      summaryFileText = nextListing.summaryFileText;
+      totalSizeText = nextListing.totalSizeText;
       updateSelectedCount();
-      statusText =
-        data.directories.length || data.files.length ? "" : "No items found.";
+      statusText = nextListing.statusText;
       syncLocationState();
     } catch (error) {
       if (requestId !== loadFilesRequestId) return;
@@ -879,52 +561,34 @@
     }
   }
 
-  function syncBreadcrumbState() {
-    const segments = ui.currentDir ? ui.currentDir.split("/") : [];
-    const items: { label: string; path: string }[] = [{ label: "/", path: "" }];
-    let currentPath = "";
-    for (const segment of segments) {
-      currentPath = currentPath ? currentPath + "/" + segment : segment;
-      items.push({ label: segment, path: currentPath });
-    }
-    breadcrumbs = items;
-  }
-
   function updateSelectedCount() {
-    selectedCountText = ui.selectedFiles.size + " selected";
-    selectedFilePaths = [...ui.selectedFiles];
-    hasSelection = ui.selectedFiles.size > 0;
+    const summary = summarizeSelection(ui.selectedFiles);
+    selectedCountText = summary.selectedCountText;
+    selectedFilePaths = summary.selectedFilePaths;
+    hasSelection = summary.hasSelection;
   }
 
   function setFileSelection(filePath: string, checked: boolean) {
-    if (!filePath) return;
-    if (checked) ui.selectedFiles.add(filePath);
-    else ui.selectedFiles.delete(filePath);
-    ui.selectedFiles = new Set(ui.selectedFiles);
+    ui.selectedFiles = setSelectedFilePath(ui.selectedFiles, filePath, checked);
     updateSelectedCount();
   }
 
   function toggleSelectAllDirectories(checked: boolean) {
-    for (const directory of directories) {
-      setFileSelection(directory.path, checked);
-    }
+    ui.selectedFiles = setSelectedPaths(ui.selectedFiles, directories, checked);
+    updateSelectedCount();
   }
 
   function toggleSelectAllFiles(checked: boolean) {
-    for (const file of files) {
-      setFileSelection(file.path, checked);
-    }
+    ui.selectedFiles = setSelectedPaths(ui.selectedFiles, files, checked);
+    updateSelectedCount();
   }
 
   async function toggleExtensionSelection(extension: string) {
-    if (ui.requestedExtensions.has(extension)) {
-      ui.requestedExtensions.delete(extension);
-      ui.selectedExtensions.delete(extension);
-    } else {
-      ui.requestedExtensions.add(extension);
-      ui.selectedExtensions.add(extension);
-    }
-    selectedExtensionsList = [...ui.requestedExtensions].sort();
+    selectedExtensionsList = toggleRequestedExtension(
+      ui.requestedExtensions,
+      ui.selectedExtensions,
+      extension,
+    );
     ui.page = 1;
     try {
       await loadFiles();
@@ -933,7 +597,7 @@
   }
 
   async function navigateToDirectory(relativePath: string) {
-    if (!readSession()) {
+    if (!getCurrentSession()) {
       forceLogout("Session expired: please log in again");
       return;
     }
@@ -951,8 +615,8 @@
   }
 
   function changePageBy(delta: number) {
-    const nextPage = ui.page + delta;
-    if (nextPage < 1 || nextPage > ui.totalPages) return;
+    const nextPage = movePage(ui.page, ui.totalPages, delta);
+    if (nextPage === null) return;
     ui.page = nextPage;
     loadFiles();
   }
@@ -964,24 +628,30 @@
   }
 
   function getMediaUrl(filePath: string): string {
-    const query = new URLSearchParams({ path: filePath });
-    const session = readSession();
-    if (authEnabled && session?.token) query.set("token", session.token);
-    return "/media?" + query.toString();
+    return createTokenizedFileUrl(
+      "/media",
+      filePath,
+      getCurrentSession(),
+      authEnabled,
+    );
   }
 
   function getThumbnailUrl(filePath: string): string {
-    const query = new URLSearchParams({ path: filePath });
-    const session = readSession();
-    if (authEnabled && session?.token) query.set("token", session.token);
-    return "/thumbnail?" + query.toString();
+    return createTokenizedFileUrl(
+      "/thumbnail",
+      filePath,
+      getCurrentSession(),
+      authEnabled,
+    );
   }
 
   function getDownloadUrl(filePath: string): string {
-    const query = new URLSearchParams({ path: filePath });
-    const session = readSession();
-    if (authEnabled && session?.token) query.set("token", session.token);
-    return "/download?" + query.toString();
+    return createTokenizedFileUrl(
+      "/download",
+      filePath,
+      getCurrentSession(),
+      authEnabled,
+    );
   }
 
   function videoRequiresPreparation(extension: string): boolean {
@@ -1065,7 +735,7 @@
           return;
         }
 
-        syncSharedVideoSurface(filePath, "lightbox");
+        sharedVideo.syncSurface(filePath, "lightbox");
       });
       return;
     }
@@ -1094,9 +764,9 @@
 
   async function fetchVideoPreparation(filePath: string) {
     const query = new URLSearchParams({ path: filePath });
-    const response = await fetch("/api/video-preparation?" + query.toString(), {
-      headers: getAuthHeaders(),
-    });
+      const response = await fetch("/api/video-preparation?" + query.toString(), {
+        headers: getAuthHeaders(getCurrentSession()),
+      });
 
     if (response.status === 401) {
       forceLogout("Session expired: please log in again");
@@ -1165,7 +835,7 @@
   }
 
   async function uploadFiles(uploadInput: FileList | UploadCandidate[] | null) {
-    if (!readSession()) {
+    if (!getCurrentSession()) {
       forceLogout("Session expired: please log in again");
       return;
     }
@@ -1180,72 +850,41 @@
       return;
     }
 
-    const totalUploadBytes = uploadCandidates.reduce(
-      (sum, entry) => sum + entry.file.size,
-      0,
-    );
+    const totalUploadBytes = getTotalUploadBytes(uploadCandidates);
     ui.isUploading = true;
     uploadBusy = true;
     uploadProgressVisible = true;
-    statusText = "Uploading " + uploadCandidates.length + " file(s)...";
+    statusText = createUploadStartStatus(uploadCandidates.length);
 
     let uploadedBytes = 0;
     const uploadedNames: string[] = [];
 
     try {
       for (const entry of uploadCandidates) {
-        const formData = new FormData();
-        formData.append("files", entry.file, entry.relativePath);
-        const query = new URLSearchParams({ dir: ui.currentDir });
-
-        const xhr = new XMLHttpRequest();
-        await new Promise<void>((resolve, reject) => {
-          xhr.open("POST", "/api/upload?" + query.toString());
-          for (const [name, value] of Object.entries(getAuthHeaders()))
-            xhr.setRequestHeader(name, value);
-          xhr.upload.addEventListener("progress", (event) => {
-            if (event.lengthComputable) {
-              const percent = Math.min(
-                100,
-                Math.round(
-                  ((uploadedBytes + event.loaded) / totalUploadBytes) * 100,
-                ),
-              );
-              uploadProgressWidth = percent + "%";
-              uploadProgressValue = percent + "%";
-              uploadProgressLabel =
-                "Uploading " +
-                uploadCandidates.length +
-                " file(s): " +
-                formatBytes(uploadedBytes + event.loaded) +
-                " / " +
-                formatBytes(totalUploadBytes);
-            }
-          });
-          xhr.addEventListener("load", () => {
-            const data = JSON.parse(xhr.responseText || "{}");
-            if (xhr.status === 401) {
-              reject(new Error("Session expired"));
-              return;
-            }
-            if (xhr.status >= 200 && xhr.status < 300) {
-              uploadedBytes += entry.file.size;
-              uploadedNames.push(...data.uploaded);
-              resolve();
-            } else {
-              reject(new Error(data.error ?? "Upload failed"));
-            }
-          });
-          xhr.addEventListener("error", () =>
-            reject(new Error("Upload failed.")),
-          );
-          xhr.send(formData);
+        const uploaded = await uploadCandidateWithXhr({
+          candidate: entry,
+          currentDir: ui.currentDir,
+          authHeaders: getAuthHeaders(getCurrentSession()),
+          onProgress: (loadedBytes) => {
+            const progress = createUploadProgressState({
+              uploadedBytes,
+              loadedBytes,
+              totalUploadBytes,
+              uploadCount: uploadCandidates.length,
+              formatBytes,
+            });
+            uploadProgressWidth = progress.width;
+            uploadProgressValue = progress.value;
+            uploadProgressLabel = progress.label;
+          },
         });
+        uploadedBytes += entry.file.size;
+        uploadedNames.push(...uploaded);
       }
 
       fileInputVersion += 1;
       await loadFiles();
-      statusText = "Uploaded: " + uploadedNames.join(", ");
+      statusText = createUploadCompleteStatus(uploadedNames);
     } catch (error: any) {
       if (error.message === "Session expired") {
         forceLogout("Session expired: please log in again");
@@ -1267,7 +906,7 @@
   }
 
   async function openCompressDialog() {
-    if (!readSession()) {
+    if (!getCurrentSession()) {
       forceLogout("Session expired: please log in again");
       return;
     }
@@ -1303,7 +942,10 @@
         const query = new URLSearchParams({ dir: ui.currentDir });
         const response = await fetch("/api/selection-size?" + query.toString(), {
           method: "POST",
-          headers: { "content-type": "application/json", ...getAuthHeaders() },
+          headers: {
+            "content-type": "application/json",
+            ...getAuthHeaders(getCurrentSession()),
+          },
           body: JSON.stringify({ items: [...ui.selectedFiles] }),
         });
         const data = await response.json();
@@ -1324,7 +966,7 @@
   }
 
   async function handleCompress() {
-    if (!readSession()) {
+    if (!getCurrentSession()) {
       forceLogout("Session expired: please log in again");
       return;
     }
@@ -1353,7 +995,10 @@
     }
     const response = await fetch("/api/zip-selection?" + query.toString(), {
       method: "POST",
-      headers: { "content-type": "application/json", ...getAuthHeaders() },
+      headers: {
+        "content-type": "application/json",
+        ...getAuthHeaders(getCurrentSession()),
+      },
       body: JSON.stringify(body),
     });
     if (!response.ok) {
@@ -1485,7 +1130,7 @@
   }
 
   async function deleteSelectedFiles() {
-    if (!readSession()) {
+    if (!getCurrentSession()) {
       forceLogout("Session expired: please log in again");
       return;
     }
@@ -1507,7 +1152,10 @@
     const query = new URLSearchParams({ dir: ui.currentDir });
     const response = await fetch("/api/delete-selection?" + query.toString(), {
       method: "POST",
-      headers: { "content-type": "application/json", ...getAuthHeaders() },
+      headers: {
+        "content-type": "application/json",
+        ...getAuthHeaders(getCurrentSession()),
+      },
       body: JSON.stringify({ items: [...ui.selectedFiles] }),
     });
     const data = await response.json().catch(() => ({}));
@@ -1524,7 +1172,7 @@
   }
 
   async function createFolder() {
-    if (!readSession()) {
+    if (!getCurrentSession()) {
       forceLogout("Session expired: please log in again");
       return;
     }
@@ -1548,7 +1196,10 @@
       const query = new URLSearchParams({ dir: ui.currentDir });
       const response = await fetch("/api/create_folder?" + query.toString(), {
         method: "POST",
-        headers: { "content-type": "application/json", ...getAuthHeaders() },
+        headers: {
+          "content-type": "application/json",
+          ...getAuthHeaders(getCurrentSession()),
+        },
         body: JSON.stringify({ name: trimmedFolderName }),
       });
       const data = await response.json().catch(() => ({}));
@@ -1626,7 +1277,7 @@
     setBodyScrollLocked(true);
     resetLightboxZoom();
     if (isVideoFile(currentFile.extension)) {
-      handoffSharedVideoToSurface(filePath, "lightbox", true);
+      sharedVideo.handoffToSurface(filePath, "lightbox", true);
     }
     syncLightboxState();
     syncLocationState();
@@ -1634,18 +1285,18 @@
 
   function closeLightbox() {
     const closingLightboxPath = lightboxPathValue;
-    const lightboxVideo = getSharedVideoElementsByPath(
+    const lightboxVideo = sharedVideo.getElementsByPath(
       closingLightboxPath,
-    ).find((element) => getSharedVideoElementSurface(element) === "lightbox");
+    ).find((element) => sharedVideo.getElementSurface(element) === "lightbox");
     const shouldRestoreGridVideo =
       lightboxMode === "video" && Boolean(closingLightboxPath && lightboxVideo);
 
     if (shouldRestoreGridVideo && lightboxVideo) {
-      storeSharedVideoPlayback(closingLightboxPath, lightboxVideo, {
+      sharedVideo.storePlayback(closingLightboxPath, lightboxVideo, {
         preferredSurface: "grid",
-        shouldResume: isSharedVideoPlaybackActive(lightboxVideo),
+        shouldResume: sharedVideo.isPlaybackActive(lightboxVideo),
       });
-      pauseSharedVideoElement(lightboxVideo);
+      sharedVideo.pauseElement(lightboxVideo);
     }
 
     ui.lightboxIndex = -1;
@@ -1655,6 +1306,7 @@
     lightboxMode = "";
     lightboxPathValue = "";
     lightboxImageUrl = "";
+    lightboxImageError = false;
     lightboxVideoUrl = "";
     lightboxVideoReady = false;
     lightboxVideoProgressLabel = "Preparing video for browser playback...";
@@ -1676,18 +1328,18 @@
 
     if (shouldRestoreGridVideo && closingLightboxPath) {
       window.requestAnimationFrame(() => {
-        syncSharedVideoSurface(closingLightboxPath, "grid");
+        sharedVideo.syncSurface(closingLightboxPath, "grid");
       });
     }
   }
 
   function syncLightboxState() {
     if (lightboxMode === "video" && lightboxPathValue) {
-      const currentLightboxVideo = getSharedVideoElementsByPath(
+      const currentLightboxVideo = sharedVideo.getElementsByPath(
         lightboxPathValue,
-      ).find((element) => getSharedVideoElementSurface(element) === "lightbox");
+      ).find((element) => sharedVideo.getElementSurface(element) === "lightbox");
 
-      storeSharedVideoPlayback(
+      sharedVideo.storePlayback(
         lightboxPathValue,
         currentLightboxVideo ?? null,
         {
@@ -1695,7 +1347,7 @@
           shouldResume: false,
         },
       );
-      pauseSharedVideoElement(currentLightboxVideo ?? null);
+      sharedVideo.pauseElement(currentLightboxVideo ?? null);
     }
 
     const currentFile = ui.visibleMediaFiles[ui.lightboxIndex];
@@ -1709,6 +1361,7 @@
     const isVideo = isVideoFile(currentFile.extension);
     lightboxMode = isVideo ? "video" : isImage ? "image" : "";
     lightboxImageUrl = isImage ? getMediaUrl(currentFile.path) : "";
+    lightboxImageError = false;
     lightboxVideoUrl = "";
     lightboxVideoReady = false;
     lightboxVideoProgressLabel = "Preparing video for browser playback...";
@@ -1717,33 +1370,15 @@
     lightboxVideoErrorText = "";
     lightboxImageAlt = isImage ? currentFile.name : "";
     lightboxTitleValue = currentFile.name;
-    lightboxMetaItems = [
-      {
-        key: "extension",
-        text: "." + (currentFile.extension || "none"),
-        badge: true,
-      },
-      {
-        key: "position",
-        text: `${ui.mediaOffset + ui.lightboxIndex + 1} / ${ui.totalMedia}`,
-        badge: false,
-      },
-      { key: "size", text: formatBytes(currentFile.size), badge: false },
-      ...(formatImageDimensions(currentFile)
-        ? [
-            {
-              key: "dimensions",
-              text: formatImageDimensions(currentFile),
-              badge: false,
-            },
-          ]
-        : []),
-      {
-        key: "modified",
-        text: formatDateTime(currentFile.modifiedAt),
-        badge: false,
-      },
-    ];
+    lightboxMetaItems = buildMediaLightboxMetaItems({
+      file: currentFile,
+      mediaOffset: ui.mediaOffset,
+      lightboxIndex: ui.lightboxIndex,
+      totalMedia: ui.totalMedia,
+      formatBytes,
+      formatDateTime,
+      formatImageDimensions,
+    });
     lightboxPrevDisabled = ui.page <= 1 && ui.lightboxIndex <= 0;
     lightboxNextDisabled =
       ui.page >= ui.totalPages &&
@@ -1752,7 +1387,7 @@
     ui.lightboxImageNaturalHeight = 0;
     resetLightboxZoom();
     if (isVideo) {
-      handoffSharedVideoToSurface(currentFile.path, "lightbox", true);
+      sharedVideo.handoffToSurface(currentFile.path, "lightbox", true);
       syncLightboxVideoPreparation(
         currentFile.path,
         getVideoPreparationEntry(currentFile.path, currentFile.extension),
@@ -1761,285 +1396,21 @@
     }
   }
 
-  function getSharedVideoPlaybackEntry(
-    filePath: string,
-  ): SharedVideoPlaybackEntry {
-    const normalizedPath = String(filePath || "");
-
-    if (!normalizedPath) {
-      return {
-        currentTime: 0,
-        shouldResume: false,
-        preferredSurface: "grid",
-      };
-    }
-
-    const existing = sharedVideoPlaybackByPath.get(normalizedPath);
-    if (existing) {
-      return existing;
-    }
-
-    const entry: SharedVideoPlaybackEntry = {
-      currentTime: 0,
-      shouldResume: false,
-      preferredSurface: "grid",
-    };
-    sharedVideoPlaybackByPath.set(normalizedPath, entry);
-    return entry;
-  }
-
-  function updateSharedVideoPlayback(
-    filePath: string,
-    nextValues: Partial<SharedVideoPlaybackEntry>,
-  ): SharedVideoPlaybackEntry {
-    if (!filePath) {
-      return getSharedVideoPlaybackEntry(filePath);
-    }
-
-    const entry = getSharedVideoPlaybackEntry(filePath);
-    Object.assign(entry, nextValues);
-    return entry;
-  }
-
-  function storeSharedVideoPlayback(
-    filePath: string,
-    element: HTMLVideoElement | null,
-    nextValues: Partial<SharedVideoPlaybackEntry> = {},
-  ): SharedVideoPlaybackEntry {
-    if (!filePath) {
-      return getSharedVideoPlaybackEntry(filePath);
-    }
-
-    const currentTime =
-      element instanceof HTMLVideoElement &&
-      Number.isFinite(element.currentTime)
-        ? Math.max(0, element.currentTime)
-        : undefined;
-
-    return updateSharedVideoPlayback(filePath, {
-      ...(currentTime === undefined ? {} : { currentTime }),
-      ...nextValues,
-    });
-  }
-
-  function runWithSharedVideoSyncSuppressed<T>(callback: () => T): T {
-    sharedVideoSyncDepth += 1;
-
-    try {
-      return callback();
-    } finally {
-      sharedVideoSyncDepth = Math.max(0, sharedVideoSyncDepth - 1);
-    }
-  }
-
-  function shouldIgnoreSharedVideoEvent(
-    filePath: string,
-    element: EventTarget | null,
-  ): boolean {
-    return (
-      sharedVideoSyncDepth > 0 ||
-      !filePath ||
-      !(element instanceof HTMLVideoElement)
-    );
-  }
-
-  function getSharedVideoElements(): HTMLVideoElement[] {
-    if (typeof document === "undefined") {
-      return [];
-    }
-
-    return [...document.querySelectorAll("video[data-shared-video]")].filter(
-      (element): element is HTMLVideoElement =>
-        element instanceof HTMLVideoElement && element.isConnected,
-    );
-  }
-
-  function getSharedVideoElementPath(element: HTMLVideoElement): string {
-    return String(element.dataset.videoPath || "");
-  }
-
-  function getSharedVideoElementSurface(
-    element: HTMLVideoElement,
-  ): "grid" | "lightbox" | "" {
-    const surface = String(element.dataset.sharedVideo || "");
-    return surface === "grid" || surface === "lightbox" ? surface : "";
-  }
-
-  function isSharedVideoPlaybackActive(
-    element: HTMLVideoElement | null,
-  ): boolean {
-    return !!element && !element.paused && !element.ended;
-  }
-
-  function getSharedVideoElementsByPath(filePath: string): HTMLVideoElement[] {
-    return getSharedVideoElements().filter(
-      (element) => getSharedVideoElementPath(element) === filePath,
-    );
-  }
-
-  function getPreferredSharedVideoElement(
-    filePath: string,
-  ): HTMLVideoElement | null {
-    const matchingElements = getSharedVideoElementsByPath(filePath);
-    const activeElement = matchingElements.find((element) =>
-      isSharedVideoPlaybackActive(element),
-    );
-
-    if (activeElement) {
-      return activeElement;
-    }
-
-    return (
-      matchingElements.find(
-        (element) => getSharedVideoElementSurface(element) === "lightbox",
-      ) ??
-      matchingElements[0] ??
-      null
-    );
-  }
-
-  function clampSharedVideoTime(
-    element: HTMLVideoElement,
-    currentTime: number,
-  ): number {
-    if (!Number.isFinite(currentTime)) {
-      return 0;
-    }
-
-    if (!Number.isFinite(element.duration)) {
-      return Math.max(0, currentTime);
-    }
-
-    return Math.min(
-      Math.max(0, currentTime),
-      Math.max(0, element.duration - 0.25),
-    );
-  }
-
-  function pauseSharedVideoElement(element: HTMLVideoElement | null) {
-    if (!element || element.paused) {
-      return;
-    }
-
-    runWithSharedVideoSyncSuppressed(() => {
-      element.pause();
-    });
-  }
-
-  function pauseOtherSharedVideos(
-    activeFilePath: string,
-    activeElement: HTMLVideoElement | null = null,
-  ) {
-    for (const element of getSharedVideoElements()) {
-      if (element === activeElement) {
-        continue;
-      }
-
-      const filePath = getSharedVideoElementPath(element);
-      if (!filePath) {
-        continue;
-      }
-
-      storeSharedVideoPlayback(
-        filePath,
-        element,
-        filePath === activeFilePath ? {} : { shouldResume: false },
-      );
-      pauseSharedVideoElement(element);
-    }
-  }
-
-  function applySharedVideoPlaybackToElement(
-    filePath: string,
-    surface: "grid" | "lightbox",
-    element: HTMLVideoElement,
-  ) {
-    if (!filePath) {
-      return;
-    }
-
-    const entry = getSharedVideoPlaybackEntry(filePath);
-
-    runWithSharedVideoSyncSuppressed(() => {
-      if (element.readyState >= 1 && Number.isFinite(entry.currentTime)) {
-        const targetTime = clampSharedVideoTime(element, entry.currentTime);
-
-        if (Math.abs(element.currentTime - targetTime) > 0.2) {
-          element.currentTime = targetTime;
-        }
-      }
-
-      if (entry.shouldResume && entry.preferredSurface === surface) {
-        pauseOtherSharedVideos(filePath, element);
-        const playResult = element.play();
-        if (playResult && typeof playResult.catch === "function") {
-          playResult.catch(() => {});
-        }
-        return;
-      }
-
-      if (!element.paused) {
-        element.pause();
-      }
-    });
-  }
-
-  function handoffSharedVideoToSurface(
-    filePath: string,
-    surface: "grid" | "lightbox",
-    defaultShouldResume = false,
-  ) {
-    if (!filePath) {
-      return;
-    }
-
-    const entry = getSharedVideoPlaybackEntry(filePath);
-    const sourceElement = getPreferredSharedVideoElement(filePath);
-    const shouldResume = sourceElement
-      ? isSharedVideoPlaybackActive(sourceElement) || defaultShouldResume
-      : entry.shouldResume || defaultShouldResume;
-
-    storeSharedVideoPlayback(filePath, sourceElement, {
-      preferredSurface: surface,
-      shouldResume,
-    });
-    pauseOtherSharedVideos(filePath, null);
-  }
-
-  function syncSharedVideoSurface(
-    filePath: string,
-    surface: "grid" | "lightbox",
-  ) {
-    if (!filePath) {
-      return;
-    }
-
-    const targetElement = getSharedVideoElementsByPath(filePath).find(
-      (element) => getSharedVideoElementSurface(element) === surface,
-    );
-
-    if (!targetElement) {
-      return;
-    }
-
-    applySharedVideoPlaybackToElement(filePath, surface, targetElement);
-  }
-
   function handleSharedVideoPlay(
     filePath: string,
     surface: "grid" | "lightbox",
     element: EventTarget | null,
   ) {
-    if (shouldIgnoreSharedVideoEvent(filePath, element)) {
+    if (sharedVideo.shouldIgnoreEvent(filePath, element)) {
       return;
     }
 
     const videoEl = element as HTMLVideoElement | null;
-    storeSharedVideoPlayback(filePath, videoEl, {
+    sharedVideo.storePlayback(filePath, videoEl, {
       shouldResume: true,
       preferredSurface: surface,
     });
-    pauseOtherSharedVideos(filePath, videoEl);
+    sharedVideo.handoffToSurface(filePath, surface, true);
   }
 
   function handleSharedVideoPause(
@@ -2047,12 +1418,12 @@
     surface: "grid" | "lightbox",
     element: EventTarget | null,
   ) {
-    if (shouldIgnoreSharedVideoEvent(filePath, element)) {
+    if (sharedVideo.shouldIgnoreEvent(filePath, element)) {
       return;
     }
 
     const videoEl = element as HTMLVideoElement | null;
-    storeSharedVideoPlayback(filePath, videoEl, {
+    sharedVideo.storePlayback(filePath, videoEl, {
       shouldResume: false,
       preferredSurface: surface,
     });
@@ -2062,13 +1433,13 @@
     filePath: string,
     element: EventTarget | null,
   ) {
-    if (shouldIgnoreSharedVideoEvent(filePath, element)) {
+    if (sharedVideo.shouldIgnoreEvent(filePath, element)) {
       return;
     }
 
     const videoEl = element as HTMLVideoElement | null;
-    storeSharedVideoPlayback(filePath, videoEl, {
-      shouldResume: isSharedVideoPlaybackActive(videoEl),
+    sharedVideo.storePlayback(filePath, videoEl, {
+      shouldResume: sharedVideo.isPlaybackActive(videoEl),
     });
   }
 
@@ -2076,11 +1447,11 @@
     filePath: string,
     element: EventTarget | null,
   ) {
-    if (shouldIgnoreSharedVideoEvent(filePath, element)) {
+    if (sharedVideo.shouldIgnoreEvent(filePath, element)) {
       return;
     }
 
-    storeSharedVideoPlayback(filePath, element as HTMLVideoElement | null);
+    sharedVideo.storePlayback(filePath, element as HTMLVideoElement | null);
   }
 
   function handleSharedVideoLoadedMetadata(
@@ -2092,7 +1463,7 @@
       return;
     }
 
-    applySharedVideoPlaybackToElement(filePath, surface, element);
+    sharedVideo.syncSurface(filePath, surface);
   }
 
   function handleSharedVideoEnded(
@@ -2100,11 +1471,11 @@
     surface: "grid" | "lightbox",
     element: EventTarget | null,
   ) {
-    if (shouldIgnoreSharedVideoEvent(filePath, element)) {
+    if (sharedVideo.shouldIgnoreEvent(filePath, element)) {
       return;
     }
 
-    storeSharedVideoPlayback(filePath, element as HTMLVideoElement | null, {
+    sharedVideo.storePlayback(filePath, element as HTMLVideoElement | null, {
       shouldResume: false,
       preferredSurface: surface,
     });
@@ -2117,10 +1488,7 @@
     lightboxMode = "zip";
     lightboxPathValue = file.path;
     lightboxTitleValue = file.name;
-    lightboxMetaItems = [
-      { key: "extension", text: "." + (file.extension || "none"), badge: true },
-      { key: "size", text: formatBytes(file.size), badge: false },
-    ];
+    lightboxMetaItems = buildArchiveLightboxMetaItems(file, formatBytes);
     lightboxPrevDisabled = true;
     lightboxNextDisabled = true;
     lightboxZipLoading = true;
@@ -2135,7 +1503,7 @@
       const query = new URLSearchParams({ path: file.path });
       const response = await fetch(
         "/api/archive-contents?" + query.toString(),
-        { headers: getAuthHeaders() },
+        { headers: getAuthHeaders(getCurrentSession()) },
       );
       const data = await response.json();
       if (!response.ok)
@@ -2156,22 +1524,16 @@
   let archivePreviewCurrentDirectory = $state("");
 
   function setArchivePreviewDirectory(relativePath: string) {
-    archivePreviewCurrentDirectory = relativePath;
-    lightboxZipCurrentDirectory = relativePath;
-    lightboxZipRootDirectories = archivePreviewDirectories.filter(
-      (d: any) => d.parentPath === relativePath,
+    const nextState = buildArchivePreviewState(
+      relativePath,
+      archivePreviewDirectories,
+      archivePreviewFiles,
     );
-    lightboxZipFiles = archivePreviewFiles.filter(
-      (f: any) => f.parentPath === relativePath,
-    );
-    const segments = relativePath ? relativePath.split("/") : [];
-    const items: { label: string; path: string }[] = [{ label: "/", path: "" }];
-    let currentPath = "";
-    for (const segment of segments) {
-      currentPath = currentPath ? currentPath + "/" + segment : segment;
-      items.push({ label: segment, path: currentPath });
-    }
-    lightboxZipBreadcrumbs = items;
+    archivePreviewCurrentDirectory = nextState.currentDirectory;
+    lightboxZipCurrentDirectory = nextState.currentDirectory;
+    lightboxZipRootDirectories = nextState.rootDirectories;
+    lightboxZipFiles = nextState.files;
+    lightboxZipBreadcrumbs = nextState.breadcrumbs;
   }
 
   async function stepLightbox(direction: number) {
@@ -2208,7 +1570,7 @@
       path: ui.lightboxPath,
       entry: file.path,
     });
-    const session = readSession();
+    const session = getCurrentSession();
     if (authEnabled && session?.token) query.set("token", session.token);
     return "/archive-entry-download?" + query.toString();
   }
@@ -2254,34 +1616,21 @@
     return Math.max(1, Math.min(100, scale * 100));
   }
 
-  function buildLightboxZoomOptions(
-    fitZoomPercent: number,
-  ): { value: string; label: string; sortValue: number }[] {
-    const roundedFitZoomPercent = Math.round(fitZoomPercent);
-    return [
-      {
-        value: LIGHTBOX_FIT_ZOOM_VALUE,
-        label: roundedFitZoomPercent + "%",
-        sortValue: fitZoomPercent,
-      },
-      ...LIGHTBOX_ZOOM_LEVELS.map((level) => ({
-        value: String(level),
-        label: level + "%",
-        sortValue: level,
-      })),
-    ].sort((left, right) => left.sortValue - right.sortValue);
-  }
-
-  function getCurrentLightboxZoomPercent(): number {
-    if (lightboxZoomValue === LIGHTBOX_FIT_ZOOM_VALUE)
-      return getFitZoomPercent();
-    const parsed = Number(lightboxZoomValue);
-    return Number.isFinite(parsed) ? parsed : 100;
+  function getLightboxZoomPercent(): number {
+    return getCurrentLightboxZoomPercent(
+      lightboxZoomValue,
+      LIGHTBOX_FIT_ZOOM_VALUE,
+      getFitZoomPercent(),
+    );
   }
 
   function updateLightboxZoomOptionLabels() {
     const fitPercent = getFitZoomPercent();
-    lightboxZoomOptions = buildLightboxZoomOptions(fitPercent);
+    lightboxZoomOptions = buildLightboxZoomOptions(
+      LIGHTBOX_FIT_ZOOM_VALUE,
+      LIGHTBOX_ZOOM_LEVELS,
+      fitPercent,
+    );
     const current = lightboxZoomOptions.find(
       (o) => o.value === lightboxZoomValue,
     );
@@ -2294,7 +1643,7 @@
       lightboxZoomInDisabled = true;
       return;
     }
-    const currentZoomPercent = getCurrentLightboxZoomPercent();
+    const currentZoomPercent = getLightboxZoomPercent();
     const sorted = [...lightboxZoomOptions].sort(
       (a, b) => a.sortValue - b.sortValue,
     );
@@ -2410,7 +1759,7 @@
 
   function nudgeLightboxZoom(direction: number) {
     if (lightboxMode !== "image") return;
-    const currentZoomPercent = getCurrentLightboxZoomPercent();
+    const currentZoomPercent = getLightboxZoomPercent();
     const sorted = [...lightboxZoomOptions].sort(
       (a, b) => a.sortValue - b.sortValue,
     );
@@ -2456,9 +1805,14 @@
     const img = e.currentTarget as HTMLImageElement;
     ui.lightboxImageNaturalWidth = img.naturalWidth;
     ui.lightboxImageNaturalHeight = img.naturalHeight;
+    lightboxImageError = false;
     updateLightboxZoomOptionLabels();
     updateLightboxZoomControls();
     updateLightboxImageStyle();
+  }
+
+  function handleLightboxImageError() {
+    lightboxImageError = true;
   }
 
   function startLightboxPan(event: PointerEvent) {
@@ -2537,7 +1891,7 @@
       t1.clientX - t0.clientX,
       t1.clientY - t0.clientY,
     );
-    ui.lightboxPinchStartZoomPercent = getCurrentLightboxZoomPercent();
+    ui.lightboxPinchStartZoomPercent = getLightboxZoomPercent();
     ui.lightboxPinchMidX = (t0.clientX + t1.clientX) / 2;
     ui.lightboxPinchMidY = (t0.clientY + t1.clientY) / 2;
     ui.lightboxPinchLastPercent = ui.lightboxPinchStartZoomPercent;
@@ -2626,7 +1980,7 @@
   $effect(() => {
     if (typeof window === "undefined" || appInitialized) return;
     appInitialized = true;
-    const existingSession = readSession();
+    const existingSession = getCurrentSession();
     if (!authEnabled || existingSession) {
       const initialLocation = readInitialLocationState();
       ui.currentDir = initialLocation.directory;
@@ -3306,7 +2660,7 @@
                           </div>
                         {/if}
                       </div>
-                      {#if (isImageFile(file.extension) && file.extension !== 'pdf') || isVideoFile(file.extension)}
+                      {#if isImageFile(file.extension) || isVideoFile(file.extension)}
                         <button
                           type="button"
                           aria-label="Open media viewer"
@@ -3557,6 +2911,7 @@
     canPan={lightboxCanPan}
     dragging={lightboxDragging}
     imageStyle={lightboxImageStyle}
+    imageError={lightboxImageError}
     zoomOptions={lightboxZoomOptions}
     zoomLabel={lightboxZoomLabel}
     formatArchiveBytes={formatBytes}
@@ -3591,6 +2946,7 @@
     onNavigateArchiveDirectory={setArchivePreviewDirectory}
     {getArchiveEntryDownloadUrl}
     onImageLoad={handleLightboxImageLoad}
+    onImageError={handleLightboxImageError}
     onZoomIn={() => nudgeLightboxZoom(1)}
     onZoomOut={() => nudgeLightboxZoom(-1)}
     onZoomChange={(v) => setLightboxZoom(v)}

@@ -28,6 +28,7 @@
     canPan: boolean;
     dragging: boolean;
     imageStyle: Record<string, string>;
+    imageError: boolean;
     zoomOptions: { value: string; label: string; sortValue: number }[];
     zoomLabel: string;
     formatArchiveBytes: (bytes: number) => string;
@@ -44,6 +45,7 @@
     onNavigateArchiveDirectory: (path: string) => void;
     getArchiveEntryDownloadUrl: (file: any) => string;
     onImageLoad: (e: Event) => void;
+    onImageError: () => void;
     onZoomIn: () => void;
     onZoomOut: () => void;
     onZoomChange: (value: string) => void;
@@ -86,6 +88,7 @@
     canPan,
     dragging,
     imageStyle,
+    imageError,
     zoomOptions,
     zoomLabel,
     formatArchiveBytes,
@@ -102,6 +105,7 @@
     onNavigateArchiveDirectory,
     getArchiveEntryDownloadUrl,
     onImageLoad,
+    onImageError,
     onZoomIn,
     onZoomOut,
     onZoomChange,
@@ -352,17 +356,27 @@
       onwheel={handleBackdropWheel}
     >
       {#if mode === "image"}
-        <img
-          src={imageUrl}
-          alt={imageAlt}
-          style={Object.keys(imageStyle).length > 0
-            ? Object.entries(imageStyle)
-                .map(([k, v]) => `${k}: ${v}`)
-                .join("; ")
-            : "max-width: 100%; max-height: 100%; object-fit: contain;"}
-          class="block max-w-none shrink-0"
-          onload={onImageLoad}
-        />
+        {#if imageError}
+          <div class="flex items-center justify-center p-8 text-center">
+            <div class="rounded-xl border border-rose-800 bg-rose-950/30 px-8 py-6">
+              <p class="text-lg font-semibold text-rose-200">Unable to display image</p>
+              <p class="mt-2 text-sm text-rose-300">The image could not be loaded. It may be in an unsupported format or the file may be unavailable.</p>
+            </div>
+          </div>
+        {:else}
+          <img
+            src={imageUrl}
+            alt={imageAlt}
+            style={Object.keys(imageStyle).length > 0
+              ? Object.entries(imageStyle)
+                  .map(([k, v]) => `${k}: ${v}`)
+                  .join("; ")
+              : "max-width: 100%; max-height: 100%; object-fit: contain;"}
+            class="block max-w-none shrink-0"
+            onload={onImageLoad}
+            onerror={onImageError}
+          />
+        {/if}
       {/if}
 
       {#if mode !== "image"}

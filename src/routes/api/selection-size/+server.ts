@@ -3,7 +3,7 @@ import { stat, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import type { RequestHandler } from './$types';
 import { normalizeRelativeDirectory, resolveListedDirectoryPath, resolveCurrentDirectoryEntryPath } from '$lib/server/file-utils';
-import { getAppConfig } from '$lib/server/config';
+import { createAuthRequiredJsonResponse, requireSession } from '$lib/server/auth';
 
 async function computeItemSize(entryPath: string): Promise<number> {
   const entryStat = await stat(entryPath).catch(() => null);
@@ -20,18 +20,9 @@ async function computeItemSize(entryPath: string): Promise<number> {
   return total;
 }
 
-function requireSession(request: Request): boolean {
-  const appConfig = getAppConfig();
-  if (!appConfig.auth.enabled) return true;
-  const token = request.headers.get('x-session-token') || '';
-  if (!token) return false;
-  const session = (globalThis as any).__fileManagerSessions?.get(token);
-  return !!session;
-}
-
 export const POST: RequestHandler = async ({ request, url }) => {
-  if (!requireSession(request)) {
-    return json({ error: 'Authentication required' }, { status: 401 });
+  if (!requireSession(request, url)) {
+    return createAuthRequiredJsonResponse();
   }
 
   const currentDir = normalizeRelativeDirectory(url.searchParams.get('dir') ?? '');

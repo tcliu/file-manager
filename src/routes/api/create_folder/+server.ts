@@ -3,11 +3,11 @@ import { mkdir, stat } from 'node:fs/promises';
 import path from 'node:path';
 import type { RequestHandler } from './$types';
 import {
-  isWithinConfiguredUploadDir,
   normalizeRelativeDirectory,
   normalizeUploadDirectoryName,
   resolveListedDirectoryPath,
 } from '$lib/server/file-utils';
+import { canCreateFolderInDirectory } from '$lib/server/access-policy';
 import { logAccess } from '$lib/server/logging';
 
 export const POST: RequestHandler = async ({ request, url }) => {
@@ -20,7 +20,7 @@ export const POST: RequestHandler = async ({ request, url }) => {
     return json({ error: 'Current directory not found' }, { status: 400 });
   }
 
-  if (!isWithinConfiguredUploadDir(currentDir)) {
+  if (!canCreateFolderInDirectory(currentDir)) {
     return json({ error: 'Folder creation is only allowed under upload' }, { status: 400 });
   }
 

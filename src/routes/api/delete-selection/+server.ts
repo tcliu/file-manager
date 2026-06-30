@@ -2,7 +2,11 @@ import { json } from '@sveltejs/kit';
 import { stat, unlink, rm } from 'node:fs/promises';
 import path from 'node:path';
 import type { RequestHandler } from './$types';
-import { normalizeRelativeDirectory, resolveListedDirectoryPath, resolveCurrentDirectoryEntryPath, isUploadSubtreePath, getProcessedImagePath, getProcessedVideoPath } from '$lib/server/file-utils';
+import { normalizeRelativeDirectory, resolveListedDirectoryPath, getProcessedImagePath, getProcessedVideoPath } from '$lib/server/file-utils';
+import {
+  canDeleteDirectoryFromCurrentDir,
+  resolveCurrentDirectoryEntry,
+} from '$lib/server/access-policy';
 import { RAW_IMAGE_EXTENSIONS, VIDEO_EXTENSIONS } from '$lib/server/constants';
 import { logAccess } from '$lib/server/logging';
 
@@ -23,11 +27,10 @@ export const POST: RequestHandler = async ({ request, url }) => {
   }
 
   for (const relativePath of requestedItems) {
-    const entryPath = resolveCurrentDirectoryEntryPath(currentDir, relativePath);
-    const entryStat = await stat(entryPath).catch(() => null);
+    const { entryStat } = await resolveCurrentDirectoryEntry(currentDir, relativePath);
 
     if (entryStat?.isFile()) continue;
-    if (entryStat?.isDirectory() && isUploadSubtreePath(currentDir, relativePath)) continue;
+    if (entryStat?.isDirectory() && canDeleteDirectoryFromCurrentDir(currentDir, relativePath)) continue;
     if (entryStat?.isDirectory()) {
       return json({ error: `Directory deletion is only allowed under upload: ${relativePath}` }, { status: 400 });
     }
@@ -35,8 +38,7 @@ export const POST: RequestHandler = async ({ request, url }) => {
   }
 
   for (const relativePath of requestedItems) {
-    const entryPath = resolveCurrentDirectoryEntryPath(currentDir, relativePath);
-    const entryStat = await stat(entryPath).catch(() => null);
+    const { entryPath, entryStat } = await resolveCurrentDirectoryEntry(currentDir, relativePath);
 
     if (entryStat?.isDirectory()) {
       await rm(entryPath, { recursive: true, force: true });

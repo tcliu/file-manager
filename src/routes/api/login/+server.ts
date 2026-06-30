@@ -30,7 +30,7 @@ export const POST: RequestHandler = async ({ request }) => {
   const token = randomUUID();
   globalThis.__fileManagerSessions!.set(token, {
     username,
-    expiresAt: Date.now() + appConfig.auth.sessionExpiryMs,
+    lastActiveAt: Date.now(),
   });
 
   logAccess(request as any, 'login', {

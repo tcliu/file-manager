@@ -16,7 +16,7 @@ export const RAW_IMAGE_EXTENSIONS = new Set(['arw']);
 
 export const IMAGE_EXTENSIONS = new Set([
   'arw', 'avif', 'bmp', 'gif', 'heic', 'heif', 'jpeg', 'jpg',
-  'pdf', 'png', 'svg', 'webp',
+  'png', 'svg', 'webp',
 ]);
 
 export const VIDEO_EXTENSIONS = new Set([

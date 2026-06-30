@@ -1,24 +1,18 @@
 import type { Handle } from '@sveltejs/kit';
-import { getAppConfig } from '$lib/server/config';
+import { createAuthRequiredJsonResponse, getSessionByToken, isAuthEnabled, readSessionToken } from '$lib/server/auth';
 
 export const handle: Handle = async ({ event, resolve }) => {
-  const appConfig = getAppConfig();
   const url = new URL(event.request.url);
   const path = url.pathname;
 
   const publicPaths = ['/', '/api/login', '/api/logout', '/api/zip-download'];
 
-  if (appConfig.auth.enabled && !publicPaths.includes(path)) {
-    const token = event.request.headers.get('x-session-token')
-      || url.searchParams.get('token')
-      || '';
+  if (isAuthEnabled() && !publicPaths.includes(path)) {
+    const token = readSessionToken(event.request, url);
 
     if (!token) {
       if (path.startsWith('/api/')) {
-        return new Response(JSON.stringify({ error: 'Authentication required' }), {
-          status: 401,
-          headers: { 'content-type': 'application/json; charset=utf-8' }
-        });
+        return createAuthRequiredJsonResponse();
       }
 
       return new Response('Authentication required', {
@@ -27,17 +21,12 @@ export const handle: Handle = async ({ event, resolve }) => {
       });
     }
 
-    const sessions = globalThis.__fileManagerSessions;
-    const session = sessions?.get(token);
+    const session = getSessionByToken(token);
 
-    if (!session || Date.now() >= session.expiresAt) {
-      sessions?.delete(token);
+    if (!session) {
 
       if (path.startsWith('/api/')) {
-        return new Response(JSON.stringify({ error: 'Authentication required' }), {
-          status: 401,
-          headers: { 'content-type': 'application/json; charset=utf-8' }
-        });
+        return createAuthRequiredJsonResponse();
       }
 
       return new Response('Authentication required', {
@@ -46,7 +35,7 @@ export const handle: Handle = async ({ event, resolve }) => {
       });
     }
 
-    event.locals.session = { username: session.username, token, expiresAt: session.expiresAt };
+    event.locals.session = { username: session.username, token, lastActiveAt: session.lastActiveAt };
   }
 
   return resolve(event);
