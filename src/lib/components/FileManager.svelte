@@ -68,6 +68,7 @@
     normalizeClientRelativeDirectory,
     type UploadCandidate,
   } from "./file-manager/client-paths";
+  import { Toaster, toast } from "svelte-sonner";
   import { formatBytes, formatDateTime } from "./file-manager/formatters";
   import {
     readInitialLocationState as readInitialLocationStateFromUrl,
@@ -125,7 +126,6 @@
       .join(" | "),
   );
   let selectedCountText = $state("0 selected");
-  let statusText = $state("");
   let loading = $state(false);
   let pageInfoText = $state("");
   let pageInputValue = $state("1");
@@ -394,7 +394,7 @@
 
   function forceLogout(message = "Session ended. Please log in again.") {
     if (!authEnabled) {
-      statusText = message;
+      toast.error(message);
       showApp();
       return;
     }
@@ -554,12 +554,15 @@
       summaryFileText = nextListing.summaryFileText;
       totalSizeText = nextListing.totalSizeText;
       updateSelectedCount();
-      statusText = nextListing.statusText;
+      if (!nextListing.directories.length && !nextListing.files.length) {
+        toast.info("No items found.");
+      }
       syncLocationState();
     } catch (error) {
       if (requestId !== loadFilesRequestId) return;
-      statusText =
-        error instanceof Error ? error.message : "Failed to load files";
+      toast.error(
+        error instanceof Error ? error.message : "Failed to load files",
+      );
     } finally {
       if (requestId === loadFilesRequestId) {
         loading = false;
@@ -824,7 +827,7 @@
       : createUploadCandidatesFromFileList(uploadInput);
 
     if (!uploadCandidates.length) {
-      statusText = "No files found to upload.";
+      toast.info("No files found to upload.");
       return;
     }
 
@@ -832,7 +835,7 @@
     ui.isUploading = true;
     uploadBusy = true;
     uploadProgressVisible = true;
-    statusText = createUploadStartStatus(uploadCandidates.length);
+    toast.info(createUploadStartStatus(uploadCandidates.length));
 
     let uploadedBytes = 0;
     const uploadedNames: string[] = [];
@@ -862,13 +865,13 @@
 
       fileInputVersion += 1;
       await loadFiles();
-      statusText = createUploadCompleteStatus(uploadedNames);
+      toast.success(createUploadCompleteStatus(uploadedNames));
     } catch (error: any) {
       if (error.message === "Session expired") {
         forceLogout("Session expired: please log in again");
         return;
       }
-      statusText = error.message || "Upload failed.";
+      toast.error(error.message || "Upload failed.");
     } finally {
       ui.isUploading = false;
       uploadBusy = false;
@@ -889,7 +892,7 @@
       return;
     }
     if (!ui.selectedFiles.size) {
-      statusText = "Select at least one file first";
+      toast.info("Select at least one file first");
       return;
     }
     if (zipSizeExceeded) return;
@@ -949,7 +952,7 @@
       return;
     }
     if (!ui.selectedFiles.size) {
-      statusText = "Select at least one file first";
+      toast.info("Select at least one file first");
       return;
     }
     const fileName = compressDialogFileName.trim() || "download.zip";
@@ -1029,7 +1032,7 @@
         link.click();
         ui.selectedFiles = new Set();
         updateSelectedCount();
-        statusText = "Downloaded zip: " + zipFilename;
+        toast.success("Downloaded zip: " + zipFilename);
       } else {
         compressDialogErrorText = "Failed to create zip file";
       }
@@ -1113,7 +1116,7 @@
       return;
     }
     if (!ui.selectedFiles.size) {
-      statusText = "Select at least one file first";
+      toast.info("Select at least one file first");
       return;
     }
     const confirmed = await openConfirmDialog({
@@ -1126,7 +1129,7 @@
     });
     if (!confirmed) return;
     deletePending = true;
-    statusText = "Deleting selected items...";
+    toast.info("Deleting selected items...");
     const query = new URLSearchParams({ dir: ui.currentDir });
     const response = await fetch("/api/delete-selection?" + query.toString(), {
       method: "POST",
@@ -1139,13 +1142,13 @@
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
       deletePending = false;
-      statusText = data.error ?? "Failed to delete selected files";
+      toast.error(data.error ?? "Failed to delete selected files");
       return;
     }
     ui.selectedFiles = new Set();
     updateSelectedCount();
     deletePending = false;
-    statusText = "Deleted " + data.deleted.length + " item(s)";
+    toast.success("Deleted " + data.deleted.length + " item(s)");
     await loadFiles();
   }
 
@@ -1168,7 +1171,7 @@
 
     createFolderPending = true;
     createFolderDialogErrorText = "";
-    statusText = 'Creating folder "' + trimmedFolderName + '"...';
+    toast.info('Creating folder "' + trimmedFolderName + '"...');
 
     try {
       const query = new URLSearchParams({ dir: ui.currentDir });
@@ -1195,7 +1198,7 @@
 
       createFolderDialogOpen = false;
       createFolderDialogName = "";
-      statusText = 'Created folder "' + trimmedFolderName + '"';
+      toast.success('Created folder "' + trimmedFolderName + '"');
       await loadFiles();
     } finally {
       createFolderPending = false;
@@ -2432,8 +2435,6 @@
         </div>
       {:else if !loading && directories.length === 0 && files.length === 0}
         <div class="mt-6">No items in this directory.</div>
-      {:else if statusText}
-        <div class="mt-6 text-sm text-slate-400">{statusText}</div>
       {/if}
 
       {#if viewMode === "list" && (directories.length || files.length)}
@@ -3067,3 +3068,5 @@
     onCancel={closeCompressDialog}
   />
 {/if}
+
+<Toaster position="top-right" richColors closeButton />

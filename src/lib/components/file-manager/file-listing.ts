@@ -64,7 +64,6 @@ export function summarizeListing(data: {
     summaryFolderText: data.directories.length > 0 ? data.directories.length + ' folders' : '',
     summaryFileText: data.total > 0 ? data.total + ' files' : '',
     totalSizeText: data.total > 0 ? formatBytes(data.totalSize) : '',
-    statusText: data.directories.length || data.files.length ? '' : 'No items found.',
   };
 }
 
@@ -111,7 +110,6 @@ export function applyListingResponse(input: {
     summaryFolderText: summary.summaryFolderText,
     summaryFileText: summary.summaryFileText,
     totalSizeText: summary.totalSizeText,
-    statusText: summary.statusText,
   };
 }
 
