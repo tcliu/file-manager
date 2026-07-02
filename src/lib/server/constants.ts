@@ -5,6 +5,7 @@ export const DEFAULT_UPLOAD_DIR = 'upload';
 export const PAGE_SIZE_OPTIONS = [10, 20, 50, 100, 200, 500, 'All'] as const;
 export type PageSizeOption = (typeof PAGE_SIZE_OPTIONS)[number];
 
+export const METADATA_FILE = 'metadata.yml';
 export const PROCESSED_DIR_NAME = '.processed';
 export const THUMBNAIL_DIR_NAME = '.thumbnails';
 export const THUMBNAIL_MAX_WIDTH = 480;

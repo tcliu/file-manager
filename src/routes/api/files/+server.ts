@@ -9,6 +9,7 @@ import { enrichVideoDimensions } from '$lib/server/video';
 import { logAccess } from '$lib/server/logging';
 import { DEFAULT_PAGE_SIZE, PAGE_SIZE_OPTIONS, IMAGE_EXTENSIONS, VIDEO_EXTENSIONS } from '$lib/server/constants';
 import type { PageSizeOption } from '$lib/server/constants';
+import { readMetadata } from '$lib/server/metadata';
 
 function parsePageSize(value: string | null): PageSizeOption | number {
   if (value === 'All') return 'All';
@@ -25,19 +26,33 @@ export const GET: RequestHandler = async (event) => {
   const currentDir = normalizeRelativeDirectory(url.searchParams.get('dir') ?? '');
   let selectedExtensions = url.searchParams.getAll('ext').map((ext) => ext.toLowerCase());
   const nameFilter = (url.searchParams.get('name_filter') ?? '').trim().toLowerCase();
+  const tagFilter = url.searchParams.getAll('tags').map((t) => t.trim().toLowerCase()).filter(Boolean);
+  const tagValues = url.searchParams.getAll('tag');
+  const untagged = tagValues.includes('untagged');
+  const tagged = tagValues.includes('tagged');
+
+  const metadata = await readMetadata(currentDir);
+  const tagsMap = metadata.tags ?? {};
+  const tagIndexMap = metadata.tagIndexMap ?? {};
 
   let listing = await listDirectoryContents(currentDir, {
     selectedExtensions,
     nameFilter,
+    tagFilter,
+    tagsMap,
+    tagIndexMap,
+    untagged,
+    tagged,
   });
 
   const extensions = listing.extensions;
+  const availableTags = listing.availableTags;
 
   let filteredFiles = listing.files;
   if (selectedExtensions.length > 0) {
     if (filteredFiles.length === 0) {
       selectedExtensions = [];
-      listing = await listDirectoryContents(currentDir, { nameFilter });
+      listing = await listDirectoryContents(currentDir, { nameFilter, tagFilter, tagsMap, tagIndexMap });
       filteredFiles = listing.files;
     }
   }
@@ -61,6 +76,23 @@ export const GET: RequestHandler = async (event) => {
   await enrichImageMetadata(pagedFiles, { extractTimestamp: view === 'grid' });
   await enrichVideoDimensions(pagedFiles);
 
+  function getEntryTags(name: string): string[] {
+    const result: string[] = [];
+    for (const [tag, filenames] of Object.entries(tagsMap)) {
+      if (filenames.includes(name)) result.push(tag);
+    }
+    return result.sort();
+  }
+
+  const directoriesWithTags = listing.directories.map((d) => ({
+    ...d,
+    tags: getEntryTags(d.name),
+  }));
+  const filesWithTags = pagedFiles.map((f) => ({
+    ...f,
+    tags: getEntryTags(f.name),
+  }));
+
   logAccess(event, 'dir_navigation', {
     directory: currentDir || '.', page, page_size: pageSize,
     selected_extensions: selectedExtensions,
@@ -70,8 +102,8 @@ export const GET: RequestHandler = async (event) => {
 
   return json({
     directory: currentDir,
-    directories: listing.directories,
-    files: pagedFiles,
+    directories: directoriesWithTags,
+    files: filesWithTags,
     page,
     pageSize,
     total,
@@ -82,5 +114,8 @@ export const GET: RequestHandler = async (event) => {
     pageSizeOptions: [...PAGE_SIZE_OPTIONS],
     selectedExtensions,
     extensions,
+    availableTags,
+    selectedTags: tagFilter,
+    tagIndexMap,
   });
 };

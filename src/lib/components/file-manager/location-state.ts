@@ -5,9 +5,21 @@ export interface InitialLocationState {
   filePath: string;
   zoomValue: string | null;
   selectedExtensions: Set<string>;
+  requestedTags: Set<string>;
+  untagged: boolean;
+  tagged: boolean;
   page: number;
   pageSize: number | string;
   filename: string;
+}
+
+export function parseTagValues(values: string[]): Set<string> {
+  const tags = new Set<string>();
+  for (const rawValue of values) {
+    const normalized = String(rawValue ?? '').trim().toLowerCase();
+    if (normalized) tags.add(normalized);
+  }
+  return tags;
 }
 
 export function normalizeExtensionValue(value: string): string {
@@ -37,6 +49,9 @@ export function readInitialLocationState(
       filePath: '',
       zoomValue: null,
       selectedExtensions: new Set<string>(),
+      requestedTags: new Set<string>(),
+      untagged: false,
+      tagged: false,
       page: 1,
       pageSize: 20,
       filename: '',
@@ -48,6 +63,10 @@ export function readInitialLocationState(
   const filePath = url.searchParams.get('f') ?? '';
   const zoomValue = normalizeLightboxZoomValue(url.searchParams.get('z'));
   const selectedExtensions = parseSelectedExtensionsParam(url.searchParams.getAll('ext'));
+  const requestedTags = parseTagValues(url.searchParams.getAll('tag').filter((t) => t !== 'untagged' && t !== 'tagged'));
+  const tagValues = url.searchParams.getAll('tag');
+  const untagged = tagValues.includes('untagged');
+  const tagged = tagValues.includes('tagged');
   const rawPage = url.searchParams.get('page');
   const rawPageSize = url.searchParams.get('page-size');
   const filename = url.searchParams.get('name_filter') ?? url.searchParams.get('filename') ?? '';
@@ -88,6 +107,9 @@ export function readInitialLocationState(
     filePath: normalizedFilePath,
     zoomValue,
     selectedExtensions,
+    requestedTags,
+    untagged,
+    tagged,
     page,
     pageSize,
     filename,
@@ -100,12 +122,14 @@ export function syncLocationState(input: {
   pageSize: number | string;
   nameFilter: string;
   requestedExtensions: Iterable<string>;
+  requestedTags: Iterable<string>;
+  untagged: boolean;
+  tagged: boolean;
   lightboxOpen: boolean;
   lightboxPath: string;
   lightboxMode: string;
   lightboxZoomValue: string;
 }) {
-  if (typeof window === 'undefined') return;
 
   const url = new URL(window.location.href);
   if (input.currentDir) {
@@ -124,6 +148,16 @@ export function syncLocationState(input: {
   url.searchParams.delete('ext');
   for (const ext of [...input.requestedExtensions].sort()) {
     url.searchParams.append('ext', ext);
+  }
+  url.searchParams.delete('tag');
+  for (const tag of [...input.requestedTags].sort()) {
+    url.searchParams.append('tag', tag);
+  }
+  if (input.untagged) {
+    url.searchParams.append('tag', 'untagged');
+  }
+  if (input.tagged) {
+    url.searchParams.append('tag', 'tagged');
   }
   if (input.lightboxOpen && input.lightboxPath) {
     url.searchParams.set('f', input.lightboxPath);

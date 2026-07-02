@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { readdir, stat } from 'node:fs/promises';
 import { getAppConfig, getRootDirs, getRootDirPath } from './config';
-import { PROCESSED_DIR_NAME } from './constants';
+import { METADATA_FILE, PROCESSED_DIR_NAME } from './constants';
 
 export function normalizeRelativeDirectory(relativeDir: string): string {
   const normalizedPath = path.posix.normalize(`/${relativeDir || ''}`).replace(/^\//, '');
@@ -170,22 +170,52 @@ export interface DirectoryListing {
   directories: DirectoryEntry[];
   files: FileEntry[];
   extensions: string[];
+  availableTags: string[];
+  tagIndexMap: Record<string, number>;
 }
 
 export async function listDirectoryContents(
   relativeDir: string,
-  options: { selectedExtensions?: string[]; nameFilter?: string } = {},
+  options: { selectedExtensions?: string[]; nameFilter?: string; tagFilter?: string[]; tagsMap?: Record<string, string[]>; tagIndexMap?: Record<string, number>; untagged?: boolean; tagged?: boolean } = {},
 ): Promise<DirectoryListing> {
   const rootDirs = getRootDirs();
   const selectedExtensions = options.selectedExtensions ?? [];
   const nameFilter = (options.nameFilter ?? '').trim().toLowerCase();
+  const tagFilter = options.tagFilter ?? [];
+  const tagsMap = options.tagsMap ?? {};
+  const tagIndexMap = options.tagIndexMap ?? {};
+  const untagged = options.untagged ?? false;
+  const tagged = options.tagged ?? false;
+
+  function itemMatchesTagFilter(filename: string): boolean {
+    if (untagged) {
+      for (const filenames of Object.values(tagsMap)) {
+        if (filenames.includes(filename)) return false;
+      }
+      return true;
+    }
+    if (tagged) {
+      for (const filenames of Object.values(tagsMap)) {
+        if (filenames.includes(filename)) return true;
+      }
+      return false;
+    }
+    if (!tagFilter.length) return true;
+    for (const tag of tagFilter) {
+      const filenames = tagsMap[tag];
+      if (filenames?.includes(filename)) return true;
+    }
+    return false;
+  }
+
+  const availableTags = Object.keys(tagsMap).sort();
 
   if (rootDirs.length > 1 && (!relativeDir || relativeDir === '.')) {
     const directories: DirectoryEntry[] = [];
     for (const dir of rootDirs.sort((a, b) => path.basename(a).localeCompare(path.basename(b)))) {
       directories.push({ name: path.basename(dir), path: path.basename(dir) });
     }
-    return { directories, files: [], extensions: [] };
+    return { directories, files: [], extensions: [], availableTags: [...availableTags].sort(), tagIndexMap };
   }
 
   const targetDir = resolveListedDirectoryPath(relativeDir);
@@ -201,12 +231,14 @@ export async function listDirectoryContents(
 
   for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
     if (entry.name.startsWith('.')) continue;
+    if (entry.name === METADATA_FILE) continue;
 
     const lowerName = entry.name.toLowerCase();
     const relativePath = path.posix.join(relativeDir, entry.name).replace(/^\//, '');
 
     if (entry.isDirectory()) {
       if (nameFilter && !lowerName.includes(nameFilter)) continue;
+      if (!itemMatchesTagFilter(entry.name)) continue;
       directories.push({ name: entry.name, path: relativePath });
       continue;
     }
@@ -218,6 +250,7 @@ export async function listDirectoryContents(
 
     if (nameFilter && !lowerName.includes(nameFilter)) continue;
     if (selectedExtensions.length > 0 && !selectedExtensions.includes(extension)) continue;
+    if (!itemMatchesTagFilter(entry.name)) continue;
 
     fileEntries.push({
       name: entry.name,
@@ -238,7 +271,7 @@ export async function listDirectoryContents(
     } satisfies FileEntry;
   }));
 
-  return { directories, files, extensions: [...extensions].sort() };
+  return { directories, files, extensions: [...extensions].sort(), availableTags: [...availableTags].sort(), tagIndexMap };
 }
 
 export async function listExtensions(dir: string, relativeDir: string): Promise<string[]> {

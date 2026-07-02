@@ -4,6 +4,7 @@
   import ConfirmDialog from "./ConfirmDialog.svelte";
   import CreateFolderDialog from "./CreateFolderDialog.svelte";
   import CompressDialog from "./CompressDialog.svelte";
+  import TagsDialog from "./TagsDialog.svelte";
   import UploadConflictDialog from "./UploadConflictDialog.svelte";
   import {
     applyListingResponse,
@@ -70,6 +71,7 @@
   } from "./file-manager/client-paths";
   import { Toaster, toast } from "svelte-sonner";
   import { formatBytes, formatDateTime } from "./file-manager/formatters";
+  import { tagFilterButtonClass, tagChipClass } from "./file-manager/tag-colors";
   import {
     readInitialLocationState as readInitialLocationStateFromUrl,
     syncLocationState as syncLocationStateToUrl,
@@ -135,6 +137,7 @@
   let showPagination = $derived(totalItems >= (Math.min(...pageSizeOptions.filter((n): n is number => typeof n === 'number')) || 10));
   let pageSizeMenuOpen = $state(false);
   let pageSizeMenuLeft = $state(false);
+  let kebabMenuOpenPath: string | null = $state(null);
   let pageSizeDisplay = $state("20");
   let viewMode = $state<"list" | "grid">("grid");
   let breadcrumbs: BreadcrumbItem[] = $state([
@@ -142,8 +145,10 @@
   ]);
   let availableExtensions: string[] = $state([]);
   let selectedExtensionsList: string[] = $state([]);
+  let availableTags: string[] = $state([]);
+  let selectedTagsList: string[] = $state([]);
   let nameFilter = $state("");
-  let directories: { name: string; path: string }[] = $state([]);
+  let directories: { name: string; path: string; tags?: string[] }[] = $state([]);
   let files: any[] = $state([]);
   let selectedFilePaths: string[] = $state([]);
   let hasSelection = $state(false);
@@ -192,6 +197,10 @@
   );
   let createFolderDialogName = $state("");
   let createFolderDialogErrorText = $state("");
+
+  let tagsDialogOpen = $state(false);
+  let tagsDialogSelectedItems: string[] = $state([]);
+  let tagsDialogSelectedItemNames: string[] = $state([]);
 
   let compressDialogOpen = $state(false);
   let compressDialogFileName = $state("download.zip");
@@ -254,6 +263,9 @@
     selectedFiles: new Set<string>(),
     requestedExtensions: new Set<string>(),
     selectedExtensions: new Set<string>(),
+    requestedTags: new Set<string>(),
+    untagged: false,
+    tagged: false,
     visibleMediaFiles: [] as any[],
     totalMedia: 0,
     mediaOffset: 0,
@@ -279,6 +291,7 @@
     lightboxPinchMidY: 0,
     lightboxPinchLastPercent: 0,
     lightboxPinchFitPercent: 0,
+    tagIndexMap: {} as Record<string, number>,
   });
 
   const selectedTotalSize = $derived(
@@ -338,6 +351,9 @@
       pageSize: ui.pageSize,
       nameFilter,
       requestedExtensions: ui.requestedExtensions,
+      requestedTags: ui.requestedTags,
+      untagged: ui.untagged,
+      tagged: ui.tagged,
       lightboxOpen,
       lightboxPath: ui.lightboxPath,
       lightboxMode,
@@ -485,6 +501,7 @@
       return;
     }
     updateSessionInfo();
+    ui.selectedFiles = new Set();
     loading = true;
     const requestId = ++loadFilesRequestId;
     try {
@@ -495,6 +512,9 @@
         viewMode,
         nameFilter,
         requestedExtensions: ui.requestedExtensions,
+        requestedTags: ui.requestedTags,
+        untagged: ui.untagged,
+        tagged: ui.tagged,
       });
 
       const response = await fetch("/api/files?" + query.toString(), {
@@ -532,6 +552,8 @@
         selectedExtensionsList = [];
       }
       availableExtensions = nextListing.availableExtensions;
+      availableTags = nextListing.availableTags;
+      selectedTagsList = nextListing.selectedTags;
       totalItems = nextListing.totalItems;
       pageSizeOptions = nextListing.pageSizeOptions;
       ui.page = nextListing.page;
@@ -542,6 +564,7 @@
       ui.mediaOffset = nextListing.mediaOffset;
       directories = nextListing.directories;
       files = nextListing.files;
+      ui.tagIndexMap = nextListing.tagIndexMap;
       pageInfoText = nextListing.pageInfoText;
       pageInputValue = nextListing.pageInputValue;
       pageInputMax = nextListing.pageInputMax;
@@ -603,6 +626,19 @@
       await loadFiles();
       syncLocationState();
     } catch {}
+  }
+
+  function toggleTag(tag: string) {
+    if (ui.requestedTags.has(tag)) {
+      ui.requestedTags.delete(tag);
+    } else {
+      ui.requestedTags.add(tag);
+      ui.untagged = false;
+      ui.tagged = false;
+    }
+    selectedTagsList = [...ui.requestedTags].sort();
+    ui.page = 1;
+    loadFiles();
   }
 
   async function navigateToDirectory(relativePath: string) {
@@ -886,6 +922,34 @@
     await uploadFiles(await getDropUploadCandidates(event.dataTransfer));
   }
 
+  let savedSelectionBeforeKebab: Set<string> | null = null;
+
+  function saveAndSetSelection(path: string) {
+    savedSelectionBeforeKebab = new Set(ui.selectedFiles);
+    ui.selectedFiles = new Set([path]);
+    updateSelectedCount();
+  }
+
+  function restoreSelectionAfterKebab(): boolean {
+    if (savedSelectionBeforeKebab) {
+      ui.selectedFiles = savedSelectionBeforeKebab;
+      savedSelectionBeforeKebab = null;
+      updateSelectedCount();
+      return true;
+    }
+    return false;
+  }
+
+  function handleKebabZip(path: string) {
+    saveAndSetSelection(path);
+    openCompressDialog();
+  }
+
+  function handleKebabTags(path: string) {
+    saveAndSetSelection(path);
+    openTagsDialog();
+  }
+
   async function openCompressDialog() {
     if (!getCurrentSession()) {
       forceLogout("Session expired: please log in again");
@@ -939,11 +1003,33 @@
     compressDialogOpen = true;
   }
 
+  function openTagsDialog() {
+    if (!ui.selectedFiles.size) {
+      toast.info("Select at least one item first");
+      return;
+    }
+    tagsDialogSelectedItems = [...ui.selectedFiles];
+    tagsDialogSelectedItemNames = tagsDialogSelectedItems.map((path) => {
+      const item = [...directories, ...files].find((i: any) => i.path === path);
+      return item?.name ?? path.split("/").pop() ?? path;
+    });
+    tagsDialogOpen = true;
+  }
+
+  async function closeTagsDialog() {
+    tagsDialogOpen = false;
+    tagsDialogSelectedItems = [];
+    tagsDialogSelectedItemNames = [];
+    await loadFiles();
+    restoreSelectionAfterKebab();
+  }
+
   function closeCompressDialog() {
     if (zipPending) return;
     compressDialogOpen = false;
     compressDialogFileName = "download.zip";
     compressDialogErrorText = "";
+    restoreSelectionAfterKebab();
   }
 
   async function handleCompress() {
@@ -1030,8 +1116,10 @@
         link.href = `/api/zip-download?token=${encodeURIComponent(zipToken)}`;
         link.download = zipFilename;
         link.click();
-        ui.selectedFiles = new Set();
-        updateSelectedCount();
+        if (!restoreSelectionAfterKebab()) {
+          ui.selectedFiles = new Set();
+          updateSelectedCount();
+        }
         toast.success("Downloaded zip: " + zipFilename);
       } else {
         compressDialogErrorText = "Failed to create zip file";
@@ -2032,6 +2120,10 @@
       pageSizeDisplay = String(initialLocation.pageSize);
       ui.requestedExtensions = new Set(initialLocation.selectedExtensions);
       ui.selectedExtensions = new Set(initialLocation.selectedExtensions);
+      ui.requestedTags = new Set(initialLocation.requestedTags);
+      selectedTagsList = [...ui.requestedTags].sort();
+      ui.untagged = initialLocation.untagged;
+      ui.tagged = initialLocation.tagged;
       pendingInitialLightboxPath = initialLocation.filePath;
       showApp();
       initializeApp(initialLocation.zoomValue);
@@ -2057,6 +2149,22 @@
         !pageSizeContainerRef.contains(e.target as Node)
       ) {
         pageSizeMenuOpen = false;
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  });
+
+  $effect(() => {
+    const openPath = kebabMenuOpenPath;
+    if (!openPath) return;
+    function handleClickOutside(e: MouseEvent) {
+      const target = e.target as Node;
+      const container = document.querySelector(
+        `[data-kebab-path="${CSS.escape(openPath!)}"]`,
+      );
+      if (container && !container.contains(target)) {
+        kebabMenuOpenPath = null;
       }
     }
     document.addEventListener("mousedown", handleClickOutside);
@@ -2119,6 +2227,72 @@
 
 {#snippet tooltip(label: string)}
   <span class="fm-tooltip">{label}</span>
+{/snippet}
+
+{#snippet kebabMenu(path: string)}
+  <div class="relative" data-kebab-path={path}>
+    <button
+      type="button"
+      aria-label="Item actions"
+      onclick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        kebabMenuOpenPath = kebabMenuOpenPath === path ? null : path;
+      }}
+      class="inline-flex items-center justify-center rounded-md p-1.5 text-slate-500 transition hover:bg-slate-800 hover:text-slate-200"
+    >
+      <svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"
+        ><path
+          d="M10 6a2 2 0 1 1 0-4 2 2 0 0 1 0 4Zm0 6a2 2 0 1 1 0-4 2 2 0 0 1 0 4Zm0 6a2 2 0 1 1 0-4 2 2 0 0 1 0 4Z"
+        /></svg
+      >
+    </button>
+    {#if kebabMenuOpenPath === path}
+      <div
+        role="presentation"
+        class="absolute right-0 z-30 mt-1 w-32 overflow-hidden rounded-lg border border-slate-700 bg-slate-900/95 p-1 shadow-2xl shadow-slate-950/60 backdrop-blur"
+        onclick={(e) => e.stopPropagation()}
+        onkeydown={() => {}}
+      >
+        <button
+          type="button"
+          onclick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            kebabMenuOpenPath = null;
+            handleKebabZip(path);
+          }}
+          class="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm text-slate-300 transition hover:bg-slate-800 hover:text-cyan-200"
+        >
+          <svg class="h-4 w-4 shrink-0" viewBox="0 0 20 20" fill="currentColor"
+            ><path
+              d="M7 2.75A1.75 1.75 0 0 0 5.25 4.5v11A1.75 1.75 0 0 0 7 17.25h6A1.75 1.75 0 0 0 14.75 15.5v-7a.75.75 0 0 0-.22-.53l-3-3A.75.75 0 0 0 11 4.75H7Z"
+            /></svg
+          >
+          Zip
+        </button>
+        <button
+          type="button"
+          onclick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            kebabMenuOpenPath = null;
+            handleKebabTags(path);
+          }}
+          class="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm text-slate-300 transition hover:bg-slate-800 hover:text-cyan-200"
+        >
+          <svg class="h-4 w-4 shrink-0" viewBox="0 0 20 20" fill="currentColor"
+            ><path
+              fill-rule="evenodd"
+              d="M5.5 2.75A1.75 1.75 0 0 0 3.75 4.5v4.69c0 .464.184.909.513 1.237l6.75 6.75a1.75 1.75 0 0 0 2.474 0l4.69-4.69a1.75 1.75 0 0 0 0-2.474l-6.75-6.75A1.75 1.75 0 0 0 9.19 2.75H5.5ZM6 6a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z"
+              clip-rule="evenodd"
+            /></svg
+          >
+          Tags
+        </button>
+      </div>
+    {/if}
+  </div>
 {/snippet}
 
 {#if showLoginShell}
@@ -2265,6 +2439,48 @@
             >
           {/each}
         </div>
+        {#if availableTags.length || ui.untagged || ui.tagged}
+          <div
+            class="flex flex-wrap gap-2 basis-full grow-0 shrink-0 order-2 sm:order-none mt-1"
+          >
+            <button
+              type="button"
+              class="rounded-full border px-2.5 py-0.5 text-xs transition {ui.untagged
+                ? 'border-2 border-slate-400/40 bg-slate-800/40 font-semibold text-slate-400'
+                : 'border border-slate-400/30 bg-slate-950 text-slate-400 hover:border-slate-400/40 hover:bg-slate-800/40'}"
+              onclick={() => {
+                ui.untagged = !ui.untagged;
+                if (ui.untagged) { ui.tagged = false; ui.requestedTags = new Set(); }
+                selectedTagsList = [...ui.requestedTags].sort();
+                ui.page = 1;
+                loadFiles();
+              }}
+            >untagged</button
+            >
+            <button
+              type="button"
+              class="rounded-full border px-2.5 py-0.5 text-xs transition {ui.tagged
+                ? 'border-2 border-teal-400/40 bg-teal-950/40 font-semibold text-teal-400'
+                : 'border border-teal-400/30 bg-slate-950 text-teal-400 hover:border-teal-400/40 hover:bg-teal-950/40'}"
+              onclick={() => {
+                ui.tagged = !ui.tagged;
+                if (ui.tagged) { ui.untagged = false; ui.requestedTags = new Set(); }
+                selectedTagsList = [...ui.requestedTags].sort();
+                ui.page = 1;
+                loadFiles();
+              }}
+            >tagged</button
+            >
+            {#each availableTags as tag}
+              <button
+                type="button"
+                class={tagFilterButtonClass(tag, selectedTagsList.includes(tag), ui.tagIndexMap)}
+                onclick={() => toggleTag(tag)}
+              >{tag}</button
+              >
+            {/each}
+          </div>
+        {/if}
       </div>
 
       {#if inUploadDir}
@@ -2343,6 +2559,22 @@
 
       {#if directories.length || files.length}
         <div class="mt-3 flex items-center gap-2">
+          <button
+            aria-label="Tag selected items"
+            onclick={openTagsDialog}
+            disabled={!hasSelection}
+            type="button"
+            class="group relative inline-flex h-9 items-center gap-1.5 rounded-lg border border-violet-700 bg-violet-950/30 px-3 text-xs font-medium text-violet-200 transition hover:border-violet-500 hover:text-violet-100 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"
+              ><path
+                fill-rule="evenodd"
+                d="M5.5 2.75A1.75 1.75 0 0 0 3.75 4.5v4.69c0 .464.184.909.513 1.237l6.75 6.75a1.75 1.75 0 0 0 2.474 0l4.69-4.69a1.75 1.75 0 0 0 0-2.474l-6.75-6.75A1.75 1.75 0 0 0 9.19 2.75H5.5ZM6 6a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z"
+                clip-rule="evenodd"
+              /></svg
+            >
+            Tags
+          </button>
           <button
             aria-label="Zip selected items"
             onclick={openCompressDialog}
@@ -2476,11 +2708,23 @@
                       class="flex min-w-0 flex-1 items-center justify-between text-left"
                       onclick={() => navigateToDirectory(directory.path)}
                     >
-                      <span class="min-w-0 truncate font-semibold text-cyan-300"
-                        >{directory.name}/</span
-                      >
+                      <div class="flex min-w-0 items-center gap-2">
+                        <span class="min-w-0 truncate font-semibold text-cyan-300"
+                          >{directory.name}/</span
+                        >
+                        {#if directory.tags?.length}
+                          <div class="flex shrink-0 flex-wrap items-center gap-1 text-xs">
+                            {#each directory.tags as tag}
+                              <span class={tagChipClass(tag, ui.tagIndexMap)}>{tag}</span>
+                            {/each}
+                          </div>
+                        {/if}
+                      </div>
                       <span class="text-xs text-slate-500">Folder</span>
                     </button>
+                    <div class="ml-auto">
+                      {@render kebabMenu(directory.path)}
+                    </div>
                   </div>
                 {/each}
               </div>
@@ -2517,19 +2761,29 @@
                         setFileSelection(file.path, e.currentTarget.checked)}
                     />
                     <a
-                      class="min-w-0 flex-1 truncate text-slate-100 underline-offset-4 hover:text-cyan-300 hover:underline"
+                      class="min-w-0 truncate text-slate-100 underline-offset-4 hover:text-cyan-300 hover:underline"
                       href={getDownloadUrl(file.path)}>{file.name}</a
                     >
                     <span
                       class="rounded-full border border-slate-700 px-2 py-1 text-xs text-slate-400"
                       >.{file.extension || "none"}</span
                     >
-                    <span class="text-xs text-slate-400"
+                    {#if file.tags?.length}
+                      <div class="flex shrink-0 flex-wrap items-center gap-1 text-xs">
+                        {#each file.tags as tag}
+                          <span class={tagChipClass(tag, ui.tagIndexMap)}>{tag}</span>
+                        {/each}
+                      </div>
+                    {/if}
+                    <span class="ml-auto text-xs text-slate-400"
                       >{formatBytes(file.size)}</span
                     >
                     <span class="text-xs text-slate-500"
                       >{formatDateTime(file.modifiedAt)}</span
                     >
+                    <span class="ml-auto shrink-0">
+                      {@render kebabMenu(file.path)}
+                    </span>
                   </label>
                 {/each}
               </div>
@@ -2580,8 +2834,18 @@
                         <p class="truncate font-semibold text-cyan-300">
                           {directory.name}
                         </p>
+                        {#if directory.tags?.length}
+                          <div class="mt-1 flex flex-wrap items-center gap-1 text-xs">
+                            {#each directory.tags as tag}
+                              <span class={tagChipClass(tag, ui.tagIndexMap)}>{tag}</span>
+                            {/each}
+                          </div>
+                        {/if}
                       </div>
                     </button>
+                    <div class="absolute right-2 top-2 z-20">
+                      {@render kebabMenu(directory.path)}
+                    </div>
                   </div>
                 {/each}
               </div>
@@ -2610,10 +2874,10 @@
               >
                 {#each files as file (file.path)}
                   <label
-                    class="overflow-hidden rounded-lg border border-slate-800 bg-slate-900/40 transition hover:border-cyan-500 hover:bg-slate-900/70"
+                    class="rounded-lg border border-slate-800 bg-slate-900/40 transition hover:border-cyan-500 hover:bg-slate-900/70"
                   >
                     <div class="group relative">
-                      <div class="aspect-[4/3] bg-slate-950">
+                      <div class="aspect-[4/3] overflow-hidden rounded-t-lg bg-slate-950">
                         {#if isImageFile(file.extension) && thumbnailSupportedExtensions.includes(file.extension)}
                           <img
                             class="h-full w-full object-cover"
@@ -2777,6 +3041,9 @@
                           class="shrink-0 rounded-full border border-slate-700 px-2 py-1 text-xs text-slate-400"
                           >.{file.extension || "none"}</span
                         >
+                        <span class="ml-auto shrink-0">
+                          {@render kebabMenu(file.path)}
+                        </span>
                       </div>
                       <div
                         class="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-400"
@@ -2789,6 +3056,13 @@
                         <span class="-mx-1 text-slate-600">|</span>
                         <span>{formatDateTime(file.modifiedAt)}</span>
                       </div>
+                      {#if file.tags?.length}
+                        <div class="flex flex-wrap items-center gap-1 text-xs">
+                          {#each file.tags as tag}
+                            <span class={tagChipClass(tag, ui.tagIndexMap)}>{tag}</span>
+                          {/each}
+                        </div>
+                      {/if}
                     </div>
                   </label>
                 {/each}
@@ -3068,5 +3342,15 @@
     onCancel={closeCompressDialog}
   />
 {/if}
+
+<TagsDialog
+  show={tagsDialogOpen}
+  currentDir={ui.currentDir}
+  selectedItems={tagsDialogSelectedItems}
+  selectedItemNames={tagsDialogSelectedItemNames}
+  tagIndexMap={ui.tagIndexMap}
+  getAuthHeaders={() => getAuthHeaders(getCurrentSession())}
+  onClose={closeTagsDialog}
+/>
 
 <Toaster position="top-right" richColors closeButton />

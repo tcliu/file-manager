@@ -5,8 +5,8 @@ export interface BreadcrumbItem {
 
 export interface FileListingResponse {
   directory: string;
-  directories: { name: string; path: string }[];
-  files: any[];
+  directories: { name: string; path: string; tags?: string[] }[];
+  files: (any & { tags?: string[] })[];
   page: number;
   pageSize: number | string;
   total: number;
@@ -17,6 +17,9 @@ export interface FileListingResponse {
   pageSizeOptions: (number | string)[];
   selectedExtensions: string[];
   extensions?: string[];
+  availableTags?: string[];
+  selectedTags?: string[];
+  tagIndexMap?: Record<string, number>;
 }
 
 export function buildFilesQuery(input: {
@@ -26,6 +29,9 @@ export function buildFilesQuery(input: {
   viewMode: 'list' | 'grid';
   nameFilter: string;
   requestedExtensions: Iterable<string>;
+  requestedTags: Iterable<string>;
+  untagged?: boolean;
+  tagged?: boolean;
 }) {
   const query = new URLSearchParams({
     dir: input.currentDir,
@@ -37,6 +43,17 @@ export function buildFilesQuery(input: {
 
   for (const extension of [...input.requestedExtensions].sort()) {
     query.append('ext', extension);
+  }
+
+  for (const tag of [...input.requestedTags].sort()) {
+    query.append('tags', tag);
+  }
+
+  if (input.untagged) {
+    query.append('tag', 'untagged');
+  }
+  if (input.tagged) {
+    query.append('tag', 'tagged');
   }
 
   return query;
@@ -90,6 +107,9 @@ export function applyListingResponse(input: {
   return {
     requestedExtensionsCleared,
     availableExtensions: data.extensions ?? [],
+    availableTags: data.availableTags ?? [],
+    selectedTags: data.selectedTags ?? [],
+    tagIndexMap: data.tagIndexMap ?? {},
     totalItems: summary.totalItems,
     pageSizeOptions: data.pageSizeOptions,
     page: data.page,
