@@ -26,7 +26,7 @@
 - Storage: direct filesystem access.
 - Server state: in-memory sessions plus in-memory image/video conversion status.
 - Client state: in-memory UI state plus browser `sessionStorage` for auth sessions.
-- Config: `.env` and `.env.local` loaded from `FILE_MANAGER_ROOT_DIR` (or `file-manager-root-dir` env var) or `process.cwd()`.
+- Config: `.env` and `.env.local` loaded from `ROOT_DIR` env var or `process.cwd()`.
 
 ## Configuration
 

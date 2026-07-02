@@ -27,7 +27,7 @@ The original `file-manager.mjs` remains in the repo as a behavioral reference an
 
 ## Configuration Model
 
-- Base config directory comes from `FILE_MANAGER_ROOT_DIR` or `process.cwd()`.
+- Base config directory comes from `ROOT_DIR` or `process.cwd()`.
 - `.env.local` overrides `.env`.
 - Env config handles auth, upload dir, and root dirs.
 - `session-expiry-ms` falls back to `3600000` when invalid.

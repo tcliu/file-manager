@@ -50,7 +50,7 @@ npm run build
 The app loads `.env` and `.env.local` from the configured root directory base.
 
 - Default base directory: current working directory
-- Override base directory: set `FILE_MANAGER_ROOT_DIR`
+- Override base directory: set `ROOT_DIR`
 - `.env.local` overrides `.env`
 
 Example `.env.local`:

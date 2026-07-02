@@ -104,13 +104,10 @@ function normalizeConfiguredDir(value: string | undefined, fallback: string, roo
 }
 
 function getEnvBaseDir(): string {
-  return path.resolve(process.env['FILE_MANAGER_ROOT_DIR'] || process.cwd());
+  return path.resolve(process.env['ROOT_DIR'] || process.cwd());
 }
 
-function getRootDir(entries?: Record<string, string>): string {
-  if (entries?.['file-manager-root-dir']) {
-    return path.resolve(entries['file-manager-root-dir']);
-  }
+function getRootDir(_entries?: Record<string, string>): string {
   return getEnvBaseDir();
 }
 
