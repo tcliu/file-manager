@@ -2445,20 +2445,6 @@
           >
             <button
               type="button"
-              class="rounded-full border px-2.5 py-0.5 text-xs transition {ui.untagged
-                ? 'border-2 border-slate-400/40 bg-slate-800/40 font-semibold text-slate-400'
-                : 'border border-slate-400/30 bg-slate-950 text-slate-400 hover:border-slate-400/40 hover:bg-slate-800/40'}"
-              onclick={() => {
-                ui.untagged = !ui.untagged;
-                if (ui.untagged) { ui.tagged = false; ui.requestedTags = new Set(); }
-                selectedTagsList = [...ui.requestedTags].sort();
-                ui.page = 1;
-                loadFiles();
-              }}
-            >untagged</button
-            >
-            <button
-              type="button"
               class="rounded-full border px-2.5 py-0.5 text-xs transition {ui.tagged
                 ? 'border-2 border-teal-400/40 bg-teal-950/40 font-semibold text-teal-400'
                 : 'border border-teal-400/30 bg-slate-950 text-teal-400 hover:border-teal-400/40 hover:bg-teal-950/40'}"
@@ -2470,6 +2456,20 @@
                 loadFiles();
               }}
             >tagged</button
+            >
+            <button
+              type="button"
+              class="rounded-full border px-2.5 py-0.5 text-xs transition {ui.untagged
+                ? 'border-2 border-slate-400/40 bg-slate-800/40 font-semibold text-slate-400'
+                : 'border border-slate-400/30 bg-slate-950 text-slate-400 hover:border-slate-400/40 hover:bg-slate-800/40'}"
+              onclick={() => {
+                ui.untagged = !ui.untagged;
+                if (ui.untagged) { ui.tagged = false; ui.requestedTags = new Set(); }
+                selectedTagsList = [...ui.requestedTags].sort();
+                ui.page = 1;
+                loadFiles();
+              }}
+            >untagged</button
             >
             {#each availableTags as tag}
               <button

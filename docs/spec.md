@@ -127,12 +127,12 @@ root-dir=../shared
 - User can open image lightbox with zoom controls.
 - `.arw` files are treated as images.
 - `.arw` thumbnails are generated on demand.
-- Opening an enlarged `.arw` preview converts it to a cached `.jpg` under `.processed` for browser display.
+- Opening an enlarged `.arw` preview converts it to a cached `.jpg` under `.file-manager/processed` for browser display.
 
 ### Preview videos
 
 - Grid cards show thumbnail/progress while a browser-playable video is prepared.
-- Prepared videos are served from a generated `.processed/*.mp4` output.
+- Prepared videos are served from a generated `.file-manager/processed/*.mp4` output.
 - Lightbox and grid video playback share playback state.
 
 ### Inspect zip archives

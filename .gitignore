@@ -6,4 +6,4 @@ build/
 .env.*
 !.env.example
 .tmp/
-metadata.yml
+.file-manager/

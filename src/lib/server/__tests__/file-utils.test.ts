@@ -143,29 +143,29 @@ describe('formatSessionExpiryLabel', () => {
 });
 
 describe('getProcessedVideoPath', () => {
-  it('returns path to .processed directory with mp4 extension', () => {
+  it('returns path to .file-manager/processed directory with mp4 extension', () => {
     const result = getProcessedVideoPath('/root/videos/movie.mov');
-    expect(result).toBe('/root/videos/.processed/movie.mp4');
+    expect(result).toBe('/root/videos/.file-manager/processed/movie.mp4');
   });
 });
 
 describe('getProcessedImagePath', () => {
-  it('returns path to .processed directory with jpg extension', () => {
+  it('returns path to .file-manager/processed directory with jpg extension', () => {
     const result = getProcessedImagePath('/root/photos/image.png');
-    expect(result).toBe('/root/photos/.processed/image.png.jpg');
+    expect(result).toBe('/root/photos/.file-manager/processed/image.png.jpg');
   });
 });
 
 describe('getImageThumbnailPath', () => {
-  it('returns path to .thumbnails directory with jpg extension', () => {
+  it('returns path to .file-manager/thumbnails directory with jpg extension', () => {
     const result = getImageThumbnailPath('/root/photos/image.heic');
-    expect(result).toBe('/root/photos/.thumbnails/image.heic.jpg');
+    expect(result).toBe('/root/photos/.file-manager/thumbnails/image.heic.jpg');
   });
 });
 
 describe('getVideoThumbnailPath', () => {
-  it('returns path to .thumbnails directory with jpg extension', () => {
+  it('returns path to .file-manager/thumbnails directory with jpg extension', () => {
     const result = getVideoThumbnailPath('/root/videos/movie.mov');
-    expect(result).toBe('/root/videos/.thumbnails/movie.mov.jpg');
+    expect(result).toBe('/root/videos/.file-manager/thumbnails/movie.mov.jpg');
   });
 });

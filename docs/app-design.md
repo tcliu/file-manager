@@ -90,8 +90,8 @@ Key route groups:
 ### Write paths
 
 - uploads into upload subtree
-- generated thumbnails in `.thumbnails`
-- generated processed images/videos in `.processed`
+- generated thumbnails in `.file-manager/thumbnails`
+- generated processed images/videos in `.file-manager/processed`
 - temporary zip exports in the OS temp dir
 
 ## Media Processing Design
@@ -100,15 +100,15 @@ Key route groups:
 
 - Thumbnail generation uses `sharp` for browser-supported image types.
 - `.arw` files are treated as images.
-- `.arw` browser preview conversion writes cached `.jpg` output into `.processed`.
+- `.arw` browser preview conversion writes cached `.jpg` output into `.file-manager/processed`.
 - `.arw` conversion tries `ffmpeg` first and falls back to ImageMagick `convert`.
 - Thumbnail and processed-image caches are invalidated by source mtime comparison.
 
 ### Videos
 
-- Browser-playable `.mp4` output is generated on demand in `.processed`.
+- Browser-playable `.mp4` output is generated on demand in `.file-manager/processed`.
 - Progress state is kept in memory.
-- Video thumbnails are generated with `ffmpeg` into `.thumbnails`.
+- Video thumbnails are generated with `ffmpeg` into `.file-manager/thumbnails`.
 - Grid and lightbox share video playback state through client-managed coordination.
 
 ## Archive Design

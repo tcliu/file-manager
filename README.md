@@ -104,8 +104,9 @@ When multiple roots are configured:
 ## Runtime Notes
 
 - Hidden files and directories are excluded from listings.
-- Generated thumbnails are stored under `.thumbnails`.
-- Generated browser-preview images/videos are stored under `.processed`.
+- Generated thumbnails are stored under `.file-manager/thumbnails`.
+- Generated browser-preview images/videos are stored under `.file-manager/processed`.
+- Metadata (tags) are stored under `.file-manager/metadata.yml`.
 - Video previews are converted to browser-playable `.mp4` files on demand.
 - `.zip` archives can be browsed in the lightbox and downloaded entry-by-entry.
 - Uploads stream directly to the server rather than buffering the full multipart request in memory.

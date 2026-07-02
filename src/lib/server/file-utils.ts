@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { readdir, stat } from 'node:fs/promises';
 import { getAppConfig, getRootDirs, getRootDirPath } from './config';
-import { METADATA_FILE, PROCESSED_DIR_NAME } from './constants';
+import { METADATA_DIR_NAME, METADATA_FILE, PROCESSED_DIR_NAME, THUMBNAIL_DIR_NAME } from './constants';
 
 export function normalizeRelativeDirectory(relativeDir: string): string {
   const normalizedPath = path.posix.normalize(`/${relativeDir || ''}`).replace(/^\//, '');
@@ -292,13 +292,14 @@ export async function listExtensions(dir: string, relativeDir: string): Promise<
 }
 
 export function getProcessedVideoPath(filePath: string): string {
-  return path.join(path.dirname(filePath), PROCESSED_DIR_NAME, `${path.parse(filePath).name}.mp4`);
+  return path.join(path.dirname(filePath), METADATA_DIR_NAME, PROCESSED_DIR_NAME, `${path.parse(filePath).name}.mp4`);
 }
 
 export function getProcessedImagePath(filePath: string): string {
   const parsed = path.parse(filePath);
   return path.join(
     path.dirname(filePath),
+    METADATA_DIR_NAME,
     PROCESSED_DIR_NAME,
     `${parsed.name}.${parsed.ext.replace(/^\./, '').toLowerCase()}.jpg`,
   );
@@ -308,7 +309,8 @@ export function getImageThumbnailPath(sourcePath: string): string {
   const parsed = path.parse(sourcePath);
   return path.join(
     path.dirname(sourcePath),
-    '.thumbnails',
+    METADATA_DIR_NAME,
+    THUMBNAIL_DIR_NAME,
     `${parsed.name}.${parsed.ext.replace(/^\./, '').toLowerCase()}.jpg`,
   );
 }
@@ -317,7 +319,8 @@ export function getVideoThumbnailPath(sourcePath: string): string {
   const parsed = path.parse(sourcePath);
   return path.join(
     path.dirname(sourcePath),
-    '.thumbnails',
+    METADATA_DIR_NAME,
+    THUMBNAIL_DIR_NAME,
     `${parsed.name}.${parsed.ext.replace(/^\./, '').toLowerCase()}.jpg`,
   );
 }

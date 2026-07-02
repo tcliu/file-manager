@@ -1,7 +1,7 @@
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import * as yaml from 'js-yaml';
-import { METADATA_FILE } from './constants';
+import { METADATA_DIR_NAME, METADATA_FILE } from './constants';
 import { resolveListedDirectoryPath } from './file-utils';
 
 export interface TagsMap {
@@ -15,7 +15,7 @@ export interface Metadata {
 
 export function getMetadataPath(relativeDir: string): string {
   const dirPath = resolveListedDirectoryPath(relativeDir);
-  return path.join(dirPath, METADATA_FILE);
+  return path.join(dirPath, METADATA_DIR_NAME, METADATA_FILE);
 }
 
 export async function readMetadata(relativeDir: string): Promise<Metadata> {
@@ -31,6 +31,7 @@ export async function readMetadata(relativeDir: string): Promise<Metadata> {
 
 export async function writeMetadata(relativeDir: string, data: Metadata): Promise<void> {
   const filePath = getMetadataPath(relativeDir);
+  await mkdir(path.dirname(filePath), { recursive: true });
   const yamlStr = yaml.dump(data, { lineWidth: -1, noRefs: true, sortKeys: true });
   await writeFile(filePath, yamlStr, 'utf8');
 }
