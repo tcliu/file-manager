@@ -1,28 +1,24 @@
 import { error } from '@sveltejs/kit';
-import { stat, mkdir, readdir } from 'node:fs/promises';
+import { stat, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { rm } from 'node:fs/promises';
 import { mkdtemp } from 'node:fs/promises';
 import { createWriteStream } from 'node:fs';
 import { randomUUID } from 'node:crypto';
-import sharp from 'sharp';
 import archiver from 'archiver';
 import type { RequestHandler } from './$types';
 import { normalizeRelativeDirectory, resolveListedDirectoryPath, resolveCurrentDirectoryEntryPath, formatTimestamp } from '$lib/server/file-utils';
 import { createZipArchive } from '$lib/server/archive';
 import { logAccess } from '$lib/server/logging';
-
-function getSharpExtensions(): Set<string> {
-  const exts = new Set<string>();
-  for (const format of Object.values(sharp.format)) {
-    if (!format.input?.file) continue;
-    for (const suffix of format.input.fileSuffix ?? []) {
-      exts.add(suffix.replace(/^\./, '').toLowerCase());
-    }
-  }
-  return exts;
-}
+import { getPendingZipDownloads } from '$lib/server/pending-downloads';
+import {
+  getImageArchiveExtension,
+  getProcessedImageDimensions,
+  isSharpProcessableImage,
+  normalizeImageProcessOptions,
+  processImageFile,
+} from '$lib/server/image-processing';
 
 interface FileItem {
   sourcePath: string;
@@ -65,11 +61,7 @@ export const POST: RequestHandler = async (event) => {
   const requestedItems: string[] = Array.isArray(body.items) ? body.items : [];
   const requestedFilename: string | undefined = typeof body.filename === 'string' ? body.filename.trim() : undefined;
   const requestedFolderName: string | undefined = typeof body.folderName === 'string' ? body.folderName.trim() : undefined;
-  const resizeWidth: number | undefined = typeof body.resizeWidth === 'number' ? Math.round(body.resizeWidth) : undefined;
-  const resizeHeight: number | undefined = typeof body.resizeHeight === 'number' ? Math.round(body.resizeHeight) : undefined;
-  const rotation: number = [90, 180, 270].includes(Math.round(body.rotation)) ? Math.round(body.rotation) : 0;
-  const resizeQuality: number | undefined = typeof body.resizeQuality === 'number' ? Math.round(body.resizeQuality) : undefined;
-  const imageFormat: string | undefined = typeof body.imageFormat === 'string' ? body.imageFormat.toLowerCase() : undefined;
+  const imageOptions = normalizeImageProcessOptions(body as Record<string, unknown>);
 
   if (!directoryStat?.isDirectory()) {
     return error(400, { message: 'Current directory not found' });
@@ -96,11 +88,11 @@ export const POST: RequestHandler = async (event) => {
 
   logAccess(event, 'zip_start', {
     items: selectedItems,
-    resize_width: resizeWidth,
-    resize_height: resizeHeight,
-    rotation,
-    resize_quality: resizeQuality,
-    image_format: imageFormat,
+    resize_width: imageOptions?.resizeWidth,
+    resize_height: imageOptions?.resizeHeight,
+    rotation: imageOptions?.rotation ?? 0,
+    resize_quality: imageOptions?.resizeQuality,
+    image_format: imageOptions?.imageFormat,
   });
 
   const archiveName = `${formatTimestamp(new Date())}.zip`;
@@ -109,24 +101,9 @@ export const POST: RequestHandler = async (event) => {
     : (requestedFilename ? requestedFilename + '.zip' : archiveName);
 
   let resizeAllFiles: FileItem[] | undefined;
-  let sharpExtensions: Set<string> | undefined;
 
-  if (resizeWidth && resizeHeight && resizeQuality) {
-    sharpExtensions = getSharpExtensions();
+  if (imageOptions) {
     resizeAllFiles = await collectFiles(currentDirectoryPath, selectedItems, requestedFolderName);
-  }
-
-  if (!globalThis.__pendingZipDownloads) {
-    globalThis.__pendingZipDownloads = new Map();
-    setInterval(() => {
-      const now = Date.now();
-      for (const [key, entry] of globalThis.__pendingZipDownloads!) {
-        if (now >= entry.expiresAt) {
-          globalThis.__pendingZipDownloads!.delete(key);
-          rm(entry.path, { force: true }).catch(() => {});
-        }
-      }
-    }, 600000);
   }
 
   const zipToken = randomUUID();
@@ -141,7 +118,7 @@ export const POST: RequestHandler = async (event) => {
           controller.enqueue(new TextEncoder().encode(JSON.stringify({ p: percent }) + '\n'));
         }
 
-        if (resizeAllFiles && sharpExtensions) {
+        if (resizeAllFiles && imageOptions) {
           const resizeDir = await mkdtemp(path.join(tmpdir(), 'file-manager-resize-'));
           resizeCleanupDir = resizeDir;
 
@@ -164,44 +141,26 @@ export const POST: RequestHandler = async (event) => {
             (async () => {
               for (const file of resizeAllFiles) {
                 const ext = path.extname(file.sourcePath).slice(1).toLowerCase();
-                const isImage = sharpExtensions!.has(ext);
+                const isImage = isSharpProcessableImage(file.sourcePath);
 
                 if (isImage) {
-                  const meta = await sharp(file.sourcePath).metadata().catch(() => null);
-                  let naturalW = meta?.width ?? 0;
-                  let naturalH = meta?.height ?? 0;
-                  if (meta?.orientation && meta.orientation >= 5) {
-                    [naturalW, naturalH] = [naturalH, naturalW];
-                  }
-                  const [rotatedNaturalW, rotatedNaturalH] = rotation === 90 || rotation === 270
-                    ? [naturalH, naturalW]
-                    : [naturalW, naturalH];
-                  const needsResize = rotatedNaturalW !== resizeWidth || rotatedNaturalH !== resizeHeight;
-                  const needsRotation = rotation !== 0;
+                  const processedDimensions = await getProcessedImageDimensions(file.sourcePath, imageOptions);
+                  const needsResize = processedDimensions.width !== imageOptions.resizeWidth
+                    || processedDimensions.height !== imageOptions.resizeHeight;
+                  const needsRotation = imageOptions.rotation !== 0;
                   const originalFormat = ext.startsWith('jp') ? 'jpeg' : ext;
-                  const formatChanged = imageFormat && originalFormat !== imageFormat;
+                  const formatChanged = originalFormat !== imageOptions.imageFormat;
 
-                  if (!needsResize && !needsRotation && resizeQuality! >= 100 && !formatChanged) {
+                  if (!needsResize && !needsRotation && imageOptions.resizeQuality >= 100 && !formatChanged) {
                     archive.file(file.sourcePath, { name: file.archivePath });
                   } else {
-                    const archiveExt = imageFormat === 'png' ? 'png' : 'jpg';
+                    const archiveExt = getImageArchiveExtension(imageOptions.imageFormat);
                     const nameInArchive = file.archivePath.replace(/\.[^/.]+$/, '') + '.' + archiveExt;
                     const resizedPath = path.join(
                       resizeDir,
                       file.archivePath.replace(/\.[^/.]+$/, '') + '.' + archiveExt,
                     );
-                    await mkdir(path.dirname(resizedPath), { recursive: true });
-                    let pipeline = needsRotation
-                      ? sharp(await sharp(file.sourcePath).rotate().toBuffer()).rotate(rotation)
-                      : sharp(file.sourcePath).rotate();
-                    if (needsResize) {
-                      pipeline = pipeline.resize(resizeWidth!, resizeHeight!, { fit: 'fill' });
-                    }
-                    if (imageFormat === 'png') {
-                      await pipeline.png().toFile(resizedPath);
-                    } else {
-                      await pipeline.jpeg({ quality: resizeQuality! }).toFile(resizedPath);
-                    }
+                    await processImageFile(file.sourcePath, resizedPath, imageOptions);
                     archive.file(resizedPath, { name: nameInArchive });
                   }
                 } else {
@@ -232,7 +191,7 @@ export const POST: RequestHandler = async (event) => {
           display_name: displayName,
         });
 
-        globalThis.__pendingZipDownloads!.set(zipToken, {
+        getPendingZipDownloads().set(zipToken, {
           path: zipPath, filename: displayName, expiresAt,
         });
 

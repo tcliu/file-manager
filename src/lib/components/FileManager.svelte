@@ -212,6 +212,16 @@
   let compressDialogResizeQuality = $state(100);
   let compressDialogImageFormat = $state("jpeg");
   let compressDialogProgress = $state<number | null>(null);
+  let processDialogOpen = $state(false);
+  let processDialogFileName = $state("");
+  let processDialogErrorText = $state("");
+  let processDialogResizeWidth = $state(0);
+  let processDialogResizeHeight = $state(0);
+  let processDialogRotation = $state(0);
+  let processDialogResizeQuality = $state(100);
+  let processDialogImageFormat = $state("jpeg");
+  let processPending = $state(false);
+  let prevProcessDialogImageFormat = $state("jpeg");
 
   let lightboxOpen = $state(false);
   let lightboxMode = $state("");
@@ -317,6 +327,24 @@
   const commonImageExtension = $derived.by(() => {
     return getCommonImageExtension(ui.selectedFiles, files, isImageFile);
   });
+  const processImageInfo = $derived.by(() => {
+    if (!processDialogOpen) return null;
+    const file = getSelectedSingleFile();
+    return file && isImageFile(file.extension)
+      ? getCommonImageInfo(new Set([file.path]), files, isImageFile)
+      : null;
+  });
+  const processImageExtension = $derived.by(() => {
+    if (!processDialogOpen) return null;
+    const file = getSelectedSingleFile();
+    return file && isImageFile(file.extension)
+      ? getCommonImageExtension(new Set([file.path]), files, isImageFile)
+      : null;
+  });
+  const processDialogTotalSize = $derived.by(() => {
+    const file = getSelectedSingleFile();
+    return processDialogOpen && file ? Number(file.size) || 0 : 0;
+  });
   const selectedDirCount = $derived(
     countSelectedItems(ui.selectedFiles, directories),
   );
@@ -372,6 +400,26 @@
 
   function isZipFile(extension: string): boolean {
     return String(extension || "").toLowerCase() === "zip";
+  }
+
+  function getProcessOutputExtension(imageFormat: string): string {
+    return imageFormat === "png" ? "png" : "jpg";
+  }
+
+  function buildProcessFileName(
+    fileName: string,
+    imageFormat: string,
+    fallbackName = "image",
+  ): string {
+    const trimmed = fileName.trim();
+    const safeName = trimmed || fallbackName;
+    const baseName = safeName.replace(/\.[^/.]+$/, "") || fallbackName;
+    return `${baseName}.${getProcessOutputExtension(imageFormat)}`;
+  }
+
+  function isProcessableImagePath(filePath: string): boolean {
+    const file = files.find((entry: any) => entry.path === filePath);
+    return !!file && isImageFile(file.extension);
   }
 
 
@@ -946,9 +994,20 @@
     openCompressDialog();
   }
 
+  function handleKebabProcess(path: string) {
+    saveAndSetSelection(path);
+    openProcessDialog();
+  }
+
   function handleKebabTags(path: string) {
     saveAndSetSelection(path);
     openTagsDialog();
+  }
+
+  function getSelectedSingleFile() {
+    if (ui.selectedFiles.size !== 1) return null;
+    const selectedPath = [...ui.selectedFiles][0];
+    return files.find((file: any) => file.path === selectedPath) ?? null;
   }
 
   async function openCompressDialog() {
@@ -1005,6 +1064,31 @@
     compressDialogOpen = true;
   }
 
+  function openProcessDialog() {
+    if (!getCurrentSession()) {
+      forceLogout("Session expired: please log in again");
+      return;
+    }
+    const selectedFile = getSelectedSingleFile();
+    if (!selectedFile || !isImageFile(selectedFile.extension)) {
+      toast.info("Select a single image file first");
+      return;
+    }
+    processDialogFileName = buildProcessFileName(
+      selectedFile.name,
+      selectedFile.extension === "png" ? "png" : "jpeg",
+      selectedFile.name.replace(/\.[^/.]+$/, "") || "image",
+    );
+    processDialogErrorText = "";
+    processDialogResizeWidth = selectedFile.width || 0;
+    processDialogResizeHeight = selectedFile.height || 0;
+    processDialogRotation = 0;
+    processDialogResizeQuality = 100;
+    processDialogImageFormat = selectedFile.extension === "png" ? "png" : "jpeg";
+    prevProcessDialogImageFormat = processDialogImageFormat;
+    processDialogOpen = true;
+  }
+
   function openTagsDialog() {
     if (!ui.selectedFiles.size) {
       toast.info("Select at least one item first");
@@ -1032,6 +1116,16 @@
     compressDialogFileName = "download.zip";
     compressDialogErrorText = "";
     compressDialogRotation = 0;
+    restoreSelectionAfterKebab();
+  }
+
+  function closeProcessDialog() {
+    if (processPending) return;
+    processDialogOpen = false;
+    processDialogFileName = "";
+    processDialogErrorText = "";
+    processDialogRotation = 0;
+    prevProcessDialogImageFormat = "jpeg";
     restoreSelectionAfterKebab();
   }
 
@@ -1134,6 +1228,71 @@
       compressDialogErrorText = "Failed to create zip file";
     }
   }
+
+  async function handleProcessImage() {
+    if (!getCurrentSession()) {
+      forceLogout("Session expired: please log in again");
+      return;
+    }
+    const selectedFile = getSelectedSingleFile();
+    if (!selectedFile || !isImageFile(selectedFile.extension)) {
+      processDialogErrorText = "Select a single image file first";
+      return;
+    }
+
+    processPending = true;
+    processDialogErrorText = "";
+    const query = new URLSearchParams({ dir: ui.currentDir });
+    const response = await fetch("/api/process-image?" + query.toString(), {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        ...getAuthHeaders(getCurrentSession()),
+      },
+      body: JSON.stringify({
+        item: selectedFile.path,
+        filename: processDialogFileName.trim(),
+        resizeWidth: processDialogResizeWidth,
+        resizeHeight: processDialogResizeHeight,
+        rotation: processDialogRotation,
+        resizeQuality: processDialogResizeQuality,
+        imageFormat: processDialogImageFormat,
+      }),
+    });
+
+    if (!response.ok) {
+      processPending = false;
+      const data = await response.json().catch(() => ({}));
+      processDialogErrorText = data.error ?? "Failed to process image";
+      return;
+    }
+
+    const data = await response.json().catch(() => ({}));
+    processPending = false;
+    if (!data.token) {
+      processDialogErrorText = "Processed download was not created";
+      return;
+    }
+
+    const link = document.createElement("a");
+    link.href = `/api/process-image-download?token=${encodeURIComponent(data.token)}`;
+    link.click();
+    processDialogOpen = false;
+    restoreSelectionAfterKebab();
+  }
+
+  $effect(() => {
+    if (!processDialogOpen) return;
+    if (prevProcessDialogImageFormat === processDialogImageFormat) return;
+    const selectedFile = getSelectedSingleFile();
+    const fallbackName = selectedFile?.name.replace(/\.[^/.]+$/, "") || "image";
+    processDialogFileName = buildProcessFileName(
+      processDialogFileName,
+      processDialogImageFormat,
+      fallbackName,
+    );
+    prevProcessDialogImageFormat = processDialogImageFormat;
+  });
 
   function openConfirmDialog(options: {
     title: string;
@@ -2254,10 +2413,31 @@
     {#if kebabMenuOpenPath === path}
       <div
         role="presentation"
-        class="absolute right-0 z-30 mt-1 w-32 overflow-hidden rounded-lg border border-slate-700 bg-slate-900/95 p-1 shadow-2xl shadow-slate-950/60 backdrop-blur"
+        class="absolute right-0 z-30 mt-1 w-40 overflow-hidden rounded-lg border border-slate-700 bg-slate-900/95 p-1 shadow-2xl shadow-slate-950/60 backdrop-blur"
         onclick={(e) => e.stopPropagation()}
         onkeydown={() => {}}
       >
+        {#if isProcessableImagePath(path)}
+          <button
+            type="button"
+            onclick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              kebabMenuOpenPath = null;
+              handleKebabProcess(path);
+            }}
+            class="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm text-slate-300 transition hover:bg-slate-800 hover:text-cyan-200"
+          >
+            <svg class="h-4 w-4 shrink-0" viewBox="0 0 20 20" fill="currentColor"
+              ><path
+                fill-rule="evenodd"
+                d="M12.493 2.75a.75.75 0 0 1 .53 1.28L11.06 6h2.19A3.75 3.75 0 1 1 9.5 9.75a.75.75 0 0 1 1.5 0 2.25 2.25 0 1 0 2.25-2.25h-2.19l1.963 1.97a.75.75 0 0 1-1.06 1.06l-3.243-3.25a.75.75 0 0 1 0-1.06l3.243-3.25a.748.748 0 0 1 .53-.22Z"
+                clip-rule="evenodd"
+              /></svg
+            >
+            Process
+          </button>
+        {/if}
         <button
           type="button"
           onclick={(e) => {
@@ -3326,6 +3506,7 @@
 
 {#if compressDialogOpen}
   <CompressDialog
+    badgeLabel="Zip"
     title="Zip selected items"
     message="Enter a filename for the zip archive."
     bind:fileName={compressDialogFileName}
@@ -3345,6 +3526,35 @@
     formatBytes={formatBytes}
     onCompress={handleCompress}
     onCancel={closeCompressDialog}
+  />
+{/if}
+
+{#if processDialogOpen}
+  <CompressDialog
+    badgeLabel="Process"
+    title="Process image"
+    message="Apply image options and download the processed file."
+    bind:fileName={processDialogFileName}
+    errorText={processDialogErrorText}
+    pending={processPending}
+    progress={null}
+    imageInfo={processImageInfo}
+    imageExtension={processImageExtension}
+    showFileName={true}
+    fileNameLabel="Output filename"
+    imageOptionsTitle="Image options"
+    actionLabel="Process"
+    bind:resizeWidth={processDialogResizeWidth}
+    bind:resizeHeight={processDialogResizeHeight}
+    bind:rotation={processDialogRotation}
+    bind:resizeQuality={processDialogResizeQuality}
+    bind:imageFormat={processDialogImageFormat}
+    fileCount={1}
+    dirCount={0}
+    totalSize={processDialogTotalSize}
+    formatBytes={formatBytes}
+    onCompress={handleProcessImage}
+    onCancel={closeProcessDialog}
   />
 {/if}
 

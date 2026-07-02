@@ -11,7 +11,7 @@ export const handle: Handle = async ({ event, resolve }) => {
   const url = new URL(event.request.url);
   const path = url.pathname;
 
-  const publicPaths = ['/', '/api/login', '/api/logout', '/api/zip-download'];
+  const publicPaths = ['/', '/api/login', '/api/logout', '/api/zip-download', '/api/process-image-download'];
 
   if (isAuthEnabled() && !publicPaths.includes(path)) {
     const token = readSessionToken(event.request, url);

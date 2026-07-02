@@ -36,6 +36,28 @@ describe('CompressDialog', () => {
     expect(badges.length).toBeGreaterThanOrEqual(1);
   });
 
+  it('supports process mode with custom output filename', () => {
+    render(CompressDialog, {
+      ...defaultProps,
+      badgeLabel: 'Process',
+      title: 'Process image',
+      message: 'Apply image options and download the processed file.',
+      fileName: 'photo.jpg',
+      showFileName: true,
+      fileNameLabel: 'Output filename',
+      actionLabel: 'Process',
+      imageInfo: { width: 1920, height: 1080 },
+      imageExtension: 'jpg',
+      resizeWidth: 1920,
+      resizeHeight: 1080,
+    });
+
+    expect(screen.getByText('Process image')).toBeTruthy();
+    expect(screen.getByDisplayValue('photo.jpg')).toBeTruthy();
+    expect(screen.getByText('Output filename')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Process' })).toBeTruthy();
+  });
+
   it('shows file and folder counts', () => {
     render(CompressDialog, defaultProps);
     expect(screen.getByText('1 folder')).toBeTruthy();
@@ -71,7 +93,7 @@ describe('CompressDialog', () => {
 
   it('shows pending state', () => {
     render(CompressDialog, { ...defaultProps, pending: true, progress: 50 });
-    expect(screen.getByText('Zipping (50%)')).toBeTruthy();
+    expect(screen.getByText('Zip (50%)')).toBeTruthy();
   });
 
   it('shows error text', () => {

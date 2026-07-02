@@ -7,6 +7,7 @@
   }
 
   interface Props {
+    badgeLabel?: string;
     title: string;
     message: string;
     fileName: string;
@@ -15,6 +16,10 @@
     progress: number | null;
     imageInfo: ImageInfo | null;
     imageExtension: string | null;
+    showFileName?: boolean;
+    fileNameLabel?: string;
+    imageOptionsTitle?: string;
+    actionLabel?: string;
     resizeWidth: number;
     resizeHeight: number;
     rotation: number;
@@ -29,6 +34,7 @@
   }
 
   let {
+    badgeLabel = "Zip",
     title,
     message,
     fileName = $bindable(),
@@ -37,6 +43,10 @@
     progress = $bindable(),
     imageInfo,
     imageExtension,
+    showFileName = true,
+    fileNameLabel = "Zip filename",
+    imageOptionsTitle = "Image options",
+    actionLabel = "Zip",
     resizeWidth = $bindable(),
     resizeHeight = $bindable(),
     rotation = $bindable(),
@@ -199,7 +209,7 @@
       <p
         class="text-xs font-semibold uppercase tracking-[0.24em] text-cyan-300"
       >
-        Zip
+        {badgeLabel}
       </p>
       <h2 class="mt-3 text-2xl font-semibold tracking-tight text-slate-100">
         {title}
@@ -223,28 +233,30 @@
           >{formatBytes(totalSize)}</span
         >
       </div>
-      <label class="mt-5 block text-sm text-slate-300">
-        <span class="mb-2 block">Zip filename</span>
-        <input
-          bind:value={fileName}
-          bind:this={inputRef}
-          type="text"
-          disabled={pending}
-          class="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-3 text-slate-100 outline-none transition focus:border-cyan-500 disabled:cursor-not-allowed disabled:opacity-40"
-          onkeydown={(event) => {
-            if (event.key === "Enter" && !pending) {
-              event.preventDefault();
-              onCompress();
-            }
-          }}
-        />
-      </label>
+      {#if showFileName}
+        <label class="mt-5 block text-sm text-slate-300">
+          <span class="mb-2 block">{fileNameLabel}</span>
+          <input
+            bind:value={fileName}
+            bind:this={inputRef}
+            type="text"
+            disabled={pending}
+            class="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-3 text-slate-100 outline-none transition focus:border-cyan-500 disabled:cursor-not-allowed disabled:opacity-40"
+            onkeydown={(event) => {
+              if (event.key === "Enter" && !pending) {
+                event.preventDefault();
+                onCompress();
+              }
+            }}
+          />
+        </label>
+      {/if}
       {#if imageInfo}
-        <div class="mt-5">
+        <div class={showFileName ? "mt-5" : "mt-6"}>
           <p
             class="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500"
           >
-            Image options
+            {imageOptionsTitle}
           </p>
           <div
             class="mt-4 grid grid-cols-[auto_1fr] items-center gap-x-3 gap-y-3 text-sm text-slate-300"
@@ -461,8 +473,8 @@
           type="button"
           class="rounded-lg bg-cyan-500 px-4 py-2.5 text-sm font-semibold text-slate-950 transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-40"
           >{pending
-            ? "Zipping" + (progress !== null ? " (" + progress + "%)" : "...")
-            : "Zip"}</button
+            ? actionLabel + (progress !== null ? " (" + progress + "%)" : "...")
+            : actionLabel}</button
         >
       </div>
     </section>

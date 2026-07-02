@@ -1,9 +1,8 @@
-import { stat } from 'node:fs/promises';
+import { stat, rm } from 'node:fs/promises';
 import { createReadStream } from 'node:fs';
-import { rm } from 'node:fs/promises';
 import type { RequestHandler } from './$types';
-import { getContentDisposition } from '$lib/server/constants';
-import { getPendingZipDownloads } from '$lib/server/pending-downloads';
+import { getContentDisposition, getInlineContentType } from '$lib/server/constants';
+import { getPendingProcessedDownloads } from '$lib/server/pending-downloads';
 
 function toUint8Array(chunk: string | Buffer): Uint8Array {
   return new Uint8Array(typeof chunk === 'string' ? Buffer.from(chunk) : chunk);
@@ -16,31 +15,29 @@ export const GET: RequestHandler = async ({ url, request }) => {
   }
   const token: string = rawToken;
 
-  const pendingEntry = getPendingZipDownloads().get(token);
+  const pendingEntry = getPendingProcessedDownloads().get(token);
   if (!pendingEntry) {
     return new Response('Download not found or expired', { status: 404 });
   }
+  const downloadEntry = pendingEntry;
 
-  if (Date.now() >= pendingEntry.expiresAt) {
-    getPendingZipDownloads().delete(token);
-    await rm(pendingEntry.path, { force: true }).catch(() => {});
+  if (Date.now() >= downloadEntry.expiresAt) {
+    getPendingProcessedDownloads().delete(token);
+    await rm(downloadEntry.path, { force: true }).catch(() => {});
     return new Response('Download expired', { status: 410 });
   }
 
-  const zipFilePath: string = pendingEntry.path;
-  const zipFilename = pendingEntry.filename;
-
-  const fileStat = await stat(zipFilePath).catch(() => null);
+  const fileStat = await stat(downloadEntry.path).catch(() => null);
   if (!fileStat?.isFile()) {
-    getPendingZipDownloads().delete(token);
+    getPendingProcessedDownloads().delete(token);
     return new Response('File not found', { status: 404 });
   }
 
-  const nodeStream = createReadStream(zipFilePath);
+  const nodeStream = createReadStream(downloadEntry.path);
 
   function cleanup() {
-    getPendingZipDownloads().delete(token);
-    rm(zipFilePath, { force: true }).catch(() => {});
+    getPendingProcessedDownloads().delete(token);
+    rm(downloadEntry.path, { force: true }).catch(() => {});
     if (!nodeStream.destroyed) nodeStream.destroy();
   }
 
@@ -95,8 +92,8 @@ export const GET: RequestHandler = async ({ url, request }) => {
   return new Response(webStream, {
     status: 200,
     headers: {
-      'content-type': 'application/zip',
-      'content-disposition': getContentDisposition(zipFilename, 'attachment'),
+      'content-type': getInlineContentType(downloadEntry.filename),
+      'content-disposition': getContentDisposition(downloadEntry.filename, 'attachment'),
       'content-length': String(fileStat.size),
     },
   });
