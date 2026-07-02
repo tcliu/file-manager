@@ -1,6 +1,6 @@
 const TAG_HUES = [
-  'red', 'orange', 'yellow', 'lime', 'emerald',
-  'cyan', 'blue', 'indigo', 'purple', 'pink',
+  'rose', 'orange', 'amber', 'lime', 'emerald',
+  'cyan', 'sky', 'indigo', 'purple', 'pink',
 ] as const;
 
 export type TagHue = (typeof TAG_HUES)[number];
@@ -38,17 +38,17 @@ type HueStyles = {
 };
 
 export const HUE_STYLES: Record<string, HueStyles> = {
-  red: {
-    chip: 'rounded-full border px-1.5 py-0.5 text-xs border-red-300/40 bg-red-950/20 text-red-300/80',
-    activeFilter: 'rounded-full border-2 px-2.5 py-0.5 text-xs font-semibold transition border-red-300/40 bg-red-950/20 text-red-300/80',
-    inactiveFilter: 'rounded-full border px-2.5 py-0.5 text-xs transition border-red-300/40 bg-red-950/20 text-red-300/80 hover:border-red-200/50 hover:bg-red-950/40 hover:text-red-200',
-    commonChip: 'inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-xs border-red-300/50 bg-red-950/25 text-red-200',
-    uncommonChip: 'inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-xs border-red-300/30 bg-red-950/10 text-red-300/70',
-    commonRemoveBtn: 'flex h-3.5 w-3.5 items-center justify-center rounded-full opacity-60 transition hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-40 text-red-300/60 hover:text-red-200',
-    uncommonRemoveBtn: 'flex h-3.5 w-3.5 items-center justify-center rounded-full opacity-60 transition hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-40 text-red-300/40 hover:text-red-200/70',
-    commonDropdown: 'flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm transition bg-red-500/15 text-red-200',
-    uncommonDropdown: 'flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm transition bg-red-500/10 text-red-300/70',
-    inactiveDropdown: 'flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm transition text-slate-300 hover:bg-slate-800 hover:text-red-300',
+  rose: {
+    chip: 'rounded-full border px-1.5 py-0.5 text-xs border-rose-300/40 bg-rose-950/20 text-rose-300/80',
+    activeFilter: 'rounded-full border-2 px-2.5 py-0.5 text-xs font-semibold transition border-rose-300/40 bg-rose-950/20 text-rose-300/80',
+    inactiveFilter: 'rounded-full border px-2.5 py-0.5 text-xs transition border-rose-300/40 bg-rose-950/20 text-rose-300/80 hover:border-rose-200/50 hover:bg-rose-950/40 hover:text-rose-200',
+    commonChip: 'inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-xs border-rose-300/50 bg-rose-950/25 text-rose-200',
+    uncommonChip: 'inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-xs border-rose-300/30 bg-rose-950/10 text-rose-300/70',
+    commonRemoveBtn: 'flex h-3.5 w-3.5 items-center justify-center rounded-full opacity-60 transition hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-40 text-rose-300/60 hover:text-rose-200',
+    uncommonRemoveBtn: 'flex h-3.5 w-3.5 items-center justify-center rounded-full opacity-60 transition hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-40 text-rose-300/40 hover:text-rose-200/70',
+    commonDropdown: 'flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm transition bg-rose-500/15 text-rose-200',
+    uncommonDropdown: 'flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm transition bg-rose-500/10 text-rose-300/70',
+    inactiveDropdown: 'flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm transition text-slate-300 hover:bg-slate-800 hover:text-rose-300',
   },
   orange: {
     chip: 'rounded-full border px-1.5 py-0.5 text-xs border-orange-300/40 bg-orange-950/20 text-orange-300/80',
@@ -62,17 +62,17 @@ export const HUE_STYLES: Record<string, HueStyles> = {
     uncommonDropdown: 'flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm transition bg-orange-500/10 text-orange-300/70',
     inactiveDropdown: 'flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm transition text-slate-300 hover:bg-slate-800 hover:text-orange-300',
   },
-  yellow: {
-    chip: 'rounded-full border px-1.5 py-0.5 text-xs border-yellow-300/40 bg-yellow-950/20 text-yellow-300/80',
-    activeFilter: 'rounded-full border-2 px-2.5 py-0.5 text-xs font-semibold transition border-yellow-300/40 bg-yellow-950/20 text-yellow-300/80',
-    inactiveFilter: 'rounded-full border px-2.5 py-0.5 text-xs transition border-yellow-300/40 bg-yellow-950/20 text-yellow-300/80 hover:border-yellow-200/50 hover:bg-yellow-950/40 hover:text-yellow-200',
-    commonChip: 'inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-xs border-yellow-300/50 bg-yellow-950/25 text-yellow-200',
-    uncommonChip: 'inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-xs border-yellow-300/30 bg-yellow-950/10 text-yellow-300/70',
-    commonRemoveBtn: 'flex h-3.5 w-3.5 items-center justify-center rounded-full opacity-60 transition hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-40 text-yellow-300/60 hover:text-yellow-200',
-    uncommonRemoveBtn: 'flex h-3.5 w-3.5 items-center justify-center rounded-full opacity-60 transition hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-40 text-yellow-300/40 hover:text-yellow-200/70',
-    commonDropdown: 'flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm transition bg-yellow-500/15 text-yellow-200',
-    uncommonDropdown: 'flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm transition bg-yellow-500/10 text-yellow-300/70',
-    inactiveDropdown: 'flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm transition text-slate-300 hover:bg-slate-800 hover:text-yellow-300',
+  amber: {
+    chip: 'rounded-full border px-1.5 py-0.5 text-xs border-amber-300/40 bg-amber-950/20 text-amber-300/80',
+    activeFilter: 'rounded-full border-2 px-2.5 py-0.5 text-xs font-semibold transition border-amber-300/40 bg-amber-950/20 text-amber-300/80',
+    inactiveFilter: 'rounded-full border px-2.5 py-0.5 text-xs transition border-amber-300/40 bg-amber-950/20 text-amber-300/80 hover:border-amber-200/50 hover:bg-amber-950/40 hover:text-amber-200',
+    commonChip: 'inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-xs border-amber-300/50 bg-amber-950/25 text-amber-200',
+    uncommonChip: 'inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-xs border-amber-300/30 bg-amber-950/10 text-amber-300/70',
+    commonRemoveBtn: 'flex h-3.5 w-3.5 items-center justify-center rounded-full opacity-60 transition hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-40 text-amber-300/60 hover:text-amber-200',
+    uncommonRemoveBtn: 'flex h-3.5 w-3.5 items-center justify-center rounded-full opacity-60 transition hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-40 text-amber-300/40 hover:text-amber-200/70',
+    commonDropdown: 'flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm transition bg-amber-500/15 text-amber-200',
+    uncommonDropdown: 'flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm transition bg-amber-500/10 text-amber-300/70',
+    inactiveDropdown: 'flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm transition text-slate-300 hover:bg-slate-800 hover:text-amber-300',
   },
   lime: {
     chip: 'rounded-full border px-1.5 py-0.5 text-xs border-lime-300/40 bg-lime-950/20 text-lime-300/80',
@@ -110,17 +110,17 @@ export const HUE_STYLES: Record<string, HueStyles> = {
     uncommonDropdown: 'flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm transition bg-cyan-500/10 text-cyan-300/70',
     inactiveDropdown: 'flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm transition text-slate-300 hover:bg-slate-800 hover:text-cyan-300',
   },
-  blue: {
-    chip: 'rounded-full border px-1.5 py-0.5 text-xs border-blue-300/40 bg-blue-950/20 text-blue-300/80',
-    activeFilter: 'rounded-full border-2 px-2.5 py-0.5 text-xs font-semibold transition border-blue-300/40 bg-blue-950/20 text-blue-300/80',
-    inactiveFilter: 'rounded-full border px-2.5 py-0.5 text-xs transition border-blue-300/40 bg-blue-950/20 text-blue-300/80 hover:border-blue-200/50 hover:bg-blue-950/40 hover:text-blue-200',
-    commonChip: 'inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-xs border-blue-300/50 bg-blue-950/25 text-blue-200',
-    uncommonChip: 'inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-xs border-blue-300/30 bg-blue-950/10 text-blue-300/70',
-    commonRemoveBtn: 'flex h-3.5 w-3.5 items-center justify-center rounded-full opacity-60 transition hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-40 text-blue-300/60 hover:text-blue-200',
-    uncommonRemoveBtn: 'flex h-3.5 w-3.5 items-center justify-center rounded-full opacity-60 transition hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-40 text-blue-300/40 hover:text-blue-200/70',
-    commonDropdown: 'flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm transition bg-blue-500/15 text-blue-200',
-    uncommonDropdown: 'flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm transition bg-blue-500/10 text-blue-300/70',
-    inactiveDropdown: 'flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm transition text-slate-300 hover:bg-slate-800 hover:text-blue-300',
+  sky: {
+    chip: 'rounded-full border px-1.5 py-0.5 text-xs border-sky-300/40 bg-sky-950/20 text-sky-300/80',
+    activeFilter: 'rounded-full border-2 px-2.5 py-0.5 text-xs font-semibold transition border-sky-300/40 bg-sky-950/20 text-sky-300/80',
+    inactiveFilter: 'rounded-full border px-2.5 py-0.5 text-xs transition border-sky-300/40 bg-sky-950/20 text-sky-300/80 hover:border-sky-200/50 hover:bg-sky-950/40 hover:text-sky-200',
+    commonChip: 'inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-xs border-sky-300/50 bg-sky-950/25 text-sky-200',
+    uncommonChip: 'inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-xs border-sky-300/30 bg-sky-950/10 text-sky-300/70',
+    commonRemoveBtn: 'flex h-3.5 w-3.5 items-center justify-center rounded-full opacity-60 transition hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-40 text-sky-300/60 hover:text-sky-200',
+    uncommonRemoveBtn: 'flex h-3.5 w-3.5 items-center justify-center rounded-full opacity-60 transition hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-40 text-sky-300/40 hover:text-sky-200/70',
+    commonDropdown: 'flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm transition bg-sky-500/15 text-sky-200',
+    uncommonDropdown: 'flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm transition bg-sky-500/10 text-sky-300/70',
+    inactiveDropdown: 'flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm transition text-slate-300 hover:bg-slate-800 hover:text-sky-300',
   },
   indigo: {
     chip: 'rounded-full border px-1.5 py-0.5 text-xs border-indigo-300/40 bg-indigo-950/20 text-indigo-300/80',

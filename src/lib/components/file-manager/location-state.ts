@@ -1,3 +1,4 @@
+import { replaceState } from '$app/navigation';
 import { normalizeClientRelativeDirectory } from './client-paths';
 
 export interface InitialLocationState {
@@ -171,5 +172,5 @@ export function syncLocationState(input: {
     url.searchParams.delete('z');
   }
 
-  window.history.replaceState({}, '', url.pathname + (url.search ? url.search : ''));
+  replaceState(url.pathname + (url.search ? url.search : ''), {});
 }
