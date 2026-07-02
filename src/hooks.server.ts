@@ -1,5 +1,11 @@
 import type { Handle } from '@sveltejs/kit';
 import { createAuthRequiredJsonResponse, getSessionByToken, isAuthEnabled, readSessionToken } from '$lib/server/auth';
+import { initFfmpeg, getFfmpegPath, getFfprobePath } from '$lib/server/ffmpeg-utils';
+
+initFfmpeg().then(() => {
+  console.log(`[ffmpeg] binary: ${getFfmpegPath()}`);
+  console.log(`[ffprobe] binary: ${getFfprobePath()}`);
+}).catch(() => {});
 
 export const handle: Handle = async ({ event, resolve }) => {
   const url = new URL(event.request.url);

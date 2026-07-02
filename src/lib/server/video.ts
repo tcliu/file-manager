@@ -7,6 +7,7 @@ import { logEvent } from './logging';
 import { getRootDirPath } from './config';
 import { THUMBNAIL_MAX_WIDTH, THUMBNAIL_MAX_HEIGHT, VIDEO_THUMBNAIL_QUALITY } from './constants';
 import { extractFfmpegErrorDetail } from './image';
+import { getFfmpegPath, getFfprobePath } from './ffmpeg-utils';
 
 const MAX_CONCURRENT_VIDEO_CONVERSIONS = 4;
 
@@ -173,7 +174,7 @@ async function createProcessedVideo(sourcePath: string, processedPath: string): 
 
 function runFfmpegVideoConversion(sourcePath: string, targetPath: string, knownDurationSeconds: number | null, onProgress?: (progress: number) => void): Promise<void> {
   return new Promise((resolve, reject) => {
-    const child = spawn('ffmpeg', [
+    const child = spawn(getFfmpegPath(), [
       '-y', '-i', sourcePath, '-progress', 'pipe:2', '-nostats',
       '-map', '0:v:0', '-map', '0:a?',
       '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '28',
@@ -229,7 +230,7 @@ function runFfmpegVideoConversion(sourcePath: string, targetPath: string, knownD
 
 function probeVideoDurationSeconds(sourcePath: string): Promise<number | null> {
   return new Promise((resolve) => {
-    const child = spawn('ffprobe', [
+    const child = spawn(getFfprobePath(), [
       '-v', 'error', '-show_entries', 'format=duration',
       '-of', 'default=noprint_wrappers=1:nokey=1', sourcePath,
     ], { stdio: ['ignore', 'pipe', 'ignore'] });
@@ -267,7 +268,7 @@ function createVideoThumbnail(sourcePath: string, thumbnailPath: string): Promis
   logEvent('server', 'thumbnail_generate_start', { kind: 'video', source_path: sourceRelativePath, output_path: outputRelativePath });
 
   return new Promise((resolve, reject) => {
-    const child = spawn('ffmpeg', [
+    const child = spawn(getFfmpegPath(), [
       '-y', '-i', sourcePath,
       '-vf', `thumbnail,scale=${THUMBNAIL_MAX_WIDTH}:${THUMBNAIL_MAX_HEIGHT}:force_original_aspect_ratio=decrease`,
       '-frames:v', '1', '-update', '1', '-q:v', String(VIDEO_THUMBNAIL_QUALITY), thumbnailPath,
@@ -303,7 +304,7 @@ function resolveListedFilePath(relativePath: string): string {
 
 function probeVideoDimensions(sourcePath: string): Promise<{ width: number | null; height: number | null }> {
   return new Promise((resolve) => {
-    const child = spawn('ffprobe', [
+    const child = spawn(getFfprobePath(), [
       '-v', 'error', '-select_streams', 'v:0',
       '-show_entries', 'stream=width,height',
       '-of', 'csv=p=0', sourcePath,

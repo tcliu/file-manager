@@ -7,6 +7,7 @@ import { stat, mkdir, rename, rm } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { getRootDirPath } from './config';
 import { spawn } from 'node:child_process';
+import { getFfmpegPath } from './ffmpeg-utils';
 
 export function getSharpInputExtensions(): Set<string> {
   const extensions = new Set<string>();
@@ -356,7 +357,7 @@ async function convertImageToJpeg(sourcePath: string, targetPath: string): Promi
 
 function runFfmpegImageConversion(sourcePath: string, targetPath: string): Promise<void> {
   return new Promise((resolve, reject) => {
-    const child = spawn('ffmpeg', [
+    const child = spawn(getFfmpegPath(), [
       '-y', '-i', sourcePath, '-map', '0:v:0', '-frames:v', '1', '-update', '1', '-q:v', '2', targetPath,
     ], { stdio: ['ignore', 'ignore', 'pipe'] });
     let stderr = '';
