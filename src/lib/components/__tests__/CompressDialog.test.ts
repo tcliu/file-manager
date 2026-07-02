@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/svelte';
+import { fireEvent, render, screen } from '@testing-library/svelte';
 import CompressDialog from '../CompressDialog.svelte';
 
 describe('CompressDialog', () => {
@@ -14,6 +14,7 @@ describe('CompressDialog', () => {
     imageExtension: null,
     resizeWidth: 0,
     resizeHeight: 0,
+    rotation: 0,
     resizeQuality: 100,
     imageFormat: 'jpeg',
     fileCount: 3,
@@ -89,7 +90,23 @@ describe('CompressDialog', () => {
     expect(screen.getByText('Image options')).toBeTruthy();
     expect(screen.getByText('Image Type')).toBeTruthy();
     expect(screen.getByText('Dimensions')).toBeTruthy();
+    expect(screen.getByText('Rotation')).toBeTruthy();
     expect(screen.getByText('Quality')).toBeTruthy();
+  });
+
+  it('swaps dimensions when rotating 90 degrees', async () => {
+    render(CompressDialog, {
+      ...defaultProps,
+      imageInfo: { width: 1920, height: 1080 },
+      imageExtension: 'jpg',
+      resizeWidth: 1920,
+      resizeHeight: 1080,
+    });
+
+    await fireEvent.click(screen.getByLabelText('Rotate 90 degrees'));
+
+    expect((screen.getByLabelText('Resize width') as HTMLInputElement).value).toBe('1080');
+    expect((screen.getByLabelText('Resize height') as HTMLInputElement).value).toBe('1920');
   });
 
   it('does not show image options when imageInfo is null', () => {

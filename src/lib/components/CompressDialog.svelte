@@ -17,6 +17,7 @@
     imageExtension: string | null;
     resizeWidth: number;
     resizeHeight: number;
+    rotation: number;
     resizeQuality: number;
     imageFormat: string;
     fileCount: number;
@@ -38,6 +39,7 @@
     imageExtension,
     resizeWidth = $bindable(),
     resizeHeight = $bindable(),
+    rotation = $bindable(),
     resizeQuality = $bindable(),
     imageFormat = $bindable(),
     fileCount,
@@ -51,8 +53,20 @@
   let inputRef = $state<HTMLInputElement | null>(null);
   let resizeRatio = $state(100);
   let prevImageInfo = $state<ImageInfo | null>(null);
+  let prevRotation = $state(rotation);
   let imageFormatMenuOpen = $state(false);
   let imageFormatContainerRef = $state<HTMLDivElement | null>(null);
+
+  function isQuarterTurn(value: number) {
+    return value === 90 || value === 270;
+  }
+
+  const effectiveImageInfo = $derived.by(() => {
+    if (!imageInfo) return null;
+    return isQuarterTurn(rotation)
+      ? { width: imageInfo.height, height: imageInfo.width }
+      : imageInfo;
+  });
 
   $effect(() => {
     void title;
@@ -62,11 +76,19 @@
   });
 
   const aspectRatio = $derived.by(() => {
-    if (!imageInfo) return 1;
-    const w = Number(imageInfo.width);
-    const h = Number(imageInfo.height);
+    if (!effectiveImageInfo) return 1;
+    const w = Number(effectiveImageInfo.width);
+    const h = Number(effectiveImageInfo.height);
     return w > 0 && h > 0 ? w / h : 1;
   });
+
+  function syncResizeRatio(width: number) {
+    if (!effectiveImageInfo) return;
+    resizeRatio = Math.max(
+      1,
+      Math.min(100, Math.round((width / effectiveImageInfo.width) * 100)),
+    );
+  }
 
   $effect(() => {
     if (
@@ -76,41 +98,54 @@
         prevImageInfo.height !== imageInfo.height)
     ) {
       prevImageInfo = imageInfo;
-      resizeWidth = imageInfo.width;
-      resizeHeight = imageInfo.height;
+      resizeWidth = effectiveImageInfo?.width ?? imageInfo.width;
+      resizeHeight = effectiveImageInfo?.height ?? imageInfo.height;
       resizeRatio = 100;
     }
   });
 
+  $effect(() => {
+    if (!imageInfo) {
+      prevRotation = rotation;
+      return;
+    }
+    if (isQuarterTurn(prevRotation) !== isQuarterTurn(rotation)) {
+      [resizeWidth, resizeHeight] = [
+        Math.max(1, resizeHeight),
+        Math.max(1, resizeWidth),
+      ];
+      syncResizeRatio(resizeWidth);
+    }
+    prevRotation = rotation;
+  });
+
   function handleRatioChange(value: number) {
-    if (!imageInfo) return;
+    if (!effectiveImageInfo) return;
     const ratio = Math.max(1, Math.min(100, Math.round(value))) / 100;
-    resizeWidth = Math.max(1, Math.round(imageInfo.width * ratio));
-    resizeHeight = Math.max(1, Math.round(imageInfo.height * ratio));
+    resizeWidth = Math.max(1, Math.round(effectiveImageInfo.width * ratio));
+    resizeHeight = Math.max(1, Math.round(effectiveImageInfo.height * ratio));
   }
 
   function handleWidthChange(value: number) {
-    if (!imageInfo) return;
+    if (!effectiveImageInfo) return;
     const w = Math.max(1, Math.round(value));
     const h = Math.max(1, Math.round(w / aspectRatio));
     resizeWidth = w;
     resizeHeight = h;
-    resizeRatio = Math.max(
-      1,
-      Math.min(100, Math.round((w / imageInfo.width) * 100)),
-    );
+    syncResizeRatio(w);
   }
 
   function handleHeightChange(value: number) {
-    if (!imageInfo) return;
+    if (!effectiveImageInfo) return;
     const h = Math.max(1, Math.round(value));
     const w = Math.max(1, Math.round(h * aspectRatio));
     resizeHeight = h;
     resizeWidth = w;
-    resizeRatio = Math.max(
-      1,
-      Math.min(100, Math.round((w / imageInfo.width) * 100)),
-    );
+    syncResizeRatio(w);
+  }
+
+  function handleRotationChange(nextRotation: number) {
+    rotation = nextRotation;
   }
 
   const formatLabel = $derived(imageFormat === "png" ? "PNG" : "JPEG");
@@ -303,6 +338,7 @@
               <input
                 type="number"
                 min="1"
+                aria-label="Resize width"
                 value={resizeWidth}
                 oninput={(e) =>
                   handleWidthChange(Number(e.currentTarget.value))}
@@ -313,12 +349,85 @@
               <input
                 type="number"
                 min="1"
+                aria-label="Resize height"
                 value={resizeHeight}
                 oninput={(e) =>
                   handleHeightChange(Number(e.currentTarget.value))}
                 disabled={pending}
                 class="w-20 rounded border border-slate-700 bg-slate-950 px-2 py-1 text-center text-slate-100 outline-none transition focus:border-cyan-500 disabled:cursor-not-allowed disabled:opacity-40"
               />
+            </div>
+            <span class="shrink-0">Rotation</span>
+            <div class="flex flex-wrap gap-2">
+              <button
+                type="button"
+                aria-label="No rotation"
+                onclick={() => handleRotationChange(0)}
+                disabled={pending}
+                class="inline-flex items-center gap-2 rounded-md border px-3 py-1.5 text-sm transition disabled:cursor-not-allowed disabled:opacity-40 {rotation ===
+                0
+                  ? 'border-cyan-500 bg-cyan-500/15 text-cyan-200'
+                  : 'border-slate-700 bg-slate-950 text-slate-300 hover:border-cyan-500 hover:text-cyan-200'}"
+              >
+                <span>None</span>
+              </button>
+              <button
+                type="button"
+                aria-label="Rotate 90 degrees"
+                onclick={() => handleRotationChange(90)}
+                disabled={pending}
+                class="inline-flex items-center gap-2 rounded-md border px-3 py-1.5 text-sm transition disabled:cursor-not-allowed disabled:opacity-40 {rotation ===
+                90
+                  ? 'border-cyan-500 bg-cyan-500/15 text-cyan-200'
+                  : 'border-slate-700 bg-slate-950 text-slate-300 hover:border-cyan-500 hover:text-cyan-200'}"
+              >
+                <svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                  <path
+                    fill-rule="evenodd"
+                    d="M9.25 3a.75.75 0 0 1 .75.75V5a5 5 0 1 1-4.462 2.742.75.75 0 0 1 1.34.674A3.5 3.5 0 1 0 10 6.5V7.75a.75.75 0 0 1-1.28.53l-2.5-2.5a.75.75 0 0 1 0-1.06l2.5-2.5A.75.75 0 0 1 10 2.75V3.5a.75.75 0 0 1-.75-.5Z"
+                    clip-rule="evenodd"
+                  />
+                </svg>
+                <span>90°</span>
+              </button>
+              <button
+                type="button"
+                aria-label="Rotate 180 degrees"
+                onclick={() => handleRotationChange(180)}
+                disabled={pending}
+                class="inline-flex items-center gap-2 rounded-md border px-3 py-1.5 text-sm transition disabled:cursor-not-allowed disabled:opacity-40 {rotation ===
+                180
+                  ? 'border-cyan-500 bg-cyan-500/15 text-cyan-200'
+                  : 'border-slate-700 bg-slate-950 text-slate-300 hover:border-cyan-500 hover:text-cyan-200'}"
+              >
+                <svg class="h-4 w-4 rotate-180" viewBox="0 0 20 20" fill="currentColor">
+                  <path
+                    fill-rule="evenodd"
+                    d="M9.25 3a.75.75 0 0 1 .75.75V5a5 5 0 1 1-4.462 2.742.75.75 0 0 1 1.34.674A3.5 3.5 0 1 0 10 6.5V7.75a.75.75 0 0 1-1.28.53l-2.5-2.5a.75.75 0 0 1 0-1.06l2.5-2.5A.75.75 0 0 1 10 2.75V3.5a.75.75 0 0 1-.75-.5Z"
+                    clip-rule="evenodd"
+                  />
+                </svg>
+                <span>180°</span>
+              </button>
+              <button
+                type="button"
+                aria-label="Rotate 270 degrees"
+                onclick={() => handleRotationChange(270)}
+                disabled={pending}
+                class="inline-flex items-center gap-2 rounded-md border px-3 py-1.5 text-sm transition disabled:cursor-not-allowed disabled:opacity-40 {rotation ===
+                270
+                  ? 'border-cyan-500 bg-cyan-500/15 text-cyan-200'
+                  : 'border-slate-700 bg-slate-950 text-slate-300 hover:border-cyan-500 hover:text-cyan-200'}"
+              >
+                <svg class="h-4 w-4 -scale-x-100" viewBox="0 0 20 20" fill="currentColor">
+                  <path
+                    fill-rule="evenodd"
+                    d="M9.25 3a.75.75 0 0 1 .75.75V5a5 5 0 1 1-4.462 2.742.75.75 0 0 1 1.34.674A3.5 3.5 0 1 0 10 6.5V7.75a.75.75 0 0 1-1.28.53l-2.5-2.5a.75.75 0 0 1 0-1.06l2.5-2.5A.75.75 0 0 1 10 2.75V3.5a.75.75 0 0 1-.75-.5Z"
+                    clip-rule="evenodd"
+                  />
+                </svg>
+                <span>270°</span>
+              </button>
             </div>
             <span class="shrink-0">Quality</span>
             <div class="flex items-center gap-3">

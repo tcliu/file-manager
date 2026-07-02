@@ -67,6 +67,7 @@ export const POST: RequestHandler = async (event) => {
   const requestedFolderName: string | undefined = typeof body.folderName === 'string' ? body.folderName.trim() : undefined;
   const resizeWidth: number | undefined = typeof body.resizeWidth === 'number' ? Math.round(body.resizeWidth) : undefined;
   const resizeHeight: number | undefined = typeof body.resizeHeight === 'number' ? Math.round(body.resizeHeight) : undefined;
+  const rotation: number = [90, 180, 270].includes(Math.round(body.rotation)) ? Math.round(body.rotation) : 0;
   const resizeQuality: number | undefined = typeof body.resizeQuality === 'number' ? Math.round(body.resizeQuality) : undefined;
   const imageFormat: string | undefined = typeof body.imageFormat === 'string' ? body.imageFormat.toLowerCase() : undefined;
 
@@ -97,6 +98,7 @@ export const POST: RequestHandler = async (event) => {
     items: selectedItems,
     resize_width: resizeWidth,
     resize_height: resizeHeight,
+    rotation,
     resize_quality: resizeQuality,
     image_format: imageFormat,
   });
@@ -171,11 +173,15 @@ export const POST: RequestHandler = async (event) => {
                   if (meta?.orientation && meta.orientation >= 5) {
                     [naturalW, naturalH] = [naturalH, naturalW];
                   }
-                  const needsResize = naturalW !== resizeWidth || naturalH !== resizeHeight;
+                  const [rotatedNaturalW, rotatedNaturalH] = rotation === 90 || rotation === 270
+                    ? [naturalH, naturalW]
+                    : [naturalW, naturalH];
+                  const needsResize = rotatedNaturalW !== resizeWidth || rotatedNaturalH !== resizeHeight;
+                  const needsRotation = rotation !== 0;
                   const originalFormat = ext.startsWith('jp') ? 'jpeg' : ext;
                   const formatChanged = imageFormat && originalFormat !== imageFormat;
 
-                  if (!needsResize && resizeQuality! >= 100 && !formatChanged) {
+                  if (!needsResize && !needsRotation && resizeQuality! >= 100 && !formatChanged) {
                     archive.file(file.sourcePath, { name: file.archivePath });
                   } else {
                     const archiveExt = imageFormat === 'png' ? 'png' : 'jpg';
@@ -185,7 +191,9 @@ export const POST: RequestHandler = async (event) => {
                       file.archivePath.replace(/\.[^/.]+$/, '') + '.' + archiveExt,
                     );
                     await mkdir(path.dirname(resizedPath), { recursive: true });
-                    let pipeline = sharp(file.sourcePath).rotate();
+                    let pipeline = needsRotation
+                      ? sharp(await sharp(file.sourcePath).rotate().toBuffer()).rotate(rotation)
+                      : sharp(file.sourcePath).rotate();
                     if (needsResize) {
                       pipeline = pipeline.resize(resizeWidth!, resizeHeight!, { fit: 'fill' });
                     }

@@ -208,6 +208,7 @@
   let compressDialogTotalSize = $state(0);
   let compressDialogResizeWidth = $state(0);
   let compressDialogResizeHeight = $state(0);
+  let compressDialogRotation = $state(0);
   let compressDialogResizeQuality = $state(100);
   let compressDialogImageFormat = $state("jpeg");
   let compressDialogProgress = $state<number | null>(null);
@@ -981,6 +982,7 @@
     }
     compressDialogErrorText = "";
     compressDialogTotalSize = selectedTotalSize;
+    compressDialogRotation = 0;
     compressDialogImageFormat = commonImageExtension === "png" ? "png" : "jpeg";
     if (ui.selectedFiles.size > 0) {
       try {
@@ -1029,6 +1031,7 @@
     compressDialogOpen = false;
     compressDialogFileName = "download.zip";
     compressDialogErrorText = "";
+    compressDialogRotation = 0;
     restoreSelectionAfterKebab();
   }
 
@@ -1057,6 +1060,7 @@
     if (commonImageInfo) {
       body.resizeWidth = compressDialogResizeWidth;
       body.resizeHeight = compressDialogResizeHeight;
+      body.rotation = compressDialogRotation;
       body.resizeQuality = compressDialogResizeQuality;
       body.imageFormat = compressDialogImageFormat;
     }
@@ -3332,6 +3336,7 @@
     imageExtension={commonImageExtension}
     bind:resizeWidth={compressDialogResizeWidth}
     bind:resizeHeight={compressDialogResizeHeight}
+    bind:rotation={compressDialogRotation}
     bind:resizeQuality={compressDialogResizeQuality}
     bind:imageFormat={compressDialogImageFormat}
     fileCount={selectedFileCount}
