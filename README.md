@@ -114,11 +114,16 @@ When multiple roots are configured:
   - Custom filename (defaults to `{name}.zip` for single items, `{timestamp}.zip` for multiple).
   - Image resize and format conversion (JPEG/PNG) when selected images share the same dimensions.
   - Quality control and aspect-ratio-locked dimension editing.
+  - Rotation support for image processing.
   - Multi-item zip wraps files in a folder named after the archive.
 - Upload filename conflicts are currently reported as upload errors; the dedicated rename/overwrite conflict dialog is present in the codebase but not wired into the active upload loop.
 - A name filter input in the breadcrumb trail filters files and directories server-side by case-insensitive substring match (debounced, resets pagination).
 - Extension filter chips can be toggled to narrow the listing to specific file types.
+- Tag filters allow filtering by user-defined tags, plus special `tagged` and `untagged` filters.
 - Section header checkboxes provide select-all / deselect-all for Folders and Files separately, with indeterminate state for partial selection.
+- List/grid view mode is persisted to the URL (`v` param) and supports browser history navigation.
+- Lightbox state (open file, zoom level) is persisted to the URL (`f`, `z` params) and supports browser back/forward navigation.
+- Pagination changes create browser history entries for back/forward navigation.
 
 ## Docs
 

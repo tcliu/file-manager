@@ -118,6 +118,28 @@ Key route groups:
 - Archive entries are not extracted globally; requested entries are streamed on demand.
 - Selection zip export creation uses `archiver`.
 
+## Tagging Design
+
+- Metadata is stored in `.file-manager/metadata.yml` per directory.
+- The `src/lib/server/metadata.ts` module handles read/write of tag metadata.
+- Tags are stored as a mapping: `tagName -> [filename1, filename2, ...]`.
+- Each tag has an assigned index for consistent sort ordering.
+- Server routes under `src/routes/api/tags/` handle tag CRUD operations.
+- Client `TagsDialog.svelte` component provides the tag management UI.
+- Tag filter chips only show tags that have items in the current directory listing.
+
+## Image Processing Design
+
+- `src/lib/server/image-processing.ts` handles image manipulation via `sharp`.
+- Supported operations: resize, quality adjustment, format conversion, rotation.
+- EXIF orientation is preserved using `sharp` rotation.
+- When source EXIF orientation >= 5, width/height are swapped to match viewed orientation.
+- Processed files are cached in `.file-manager/processed`.
+- Cache invalidation: source file mtime is compared against cached output mtime.
+- If dimensions match original AND quality is 100 AND format is unchanged, original is used.
+- Server routes under `src/routes/api/process-image/` handle processing and download.
+- Rotation can be applied via the CompressDialog during zip creation or via direct download.
+
 ## Client App Design
 
 ### Route Shell
@@ -130,6 +152,7 @@ Key route groups:
 - `FileManager.svelte`: top-level browser state and orchestration
 - `Login.svelte`: auth form and remembered credential restore
 - `Lightbox.svelte`: image/video/archive preview surface
+- `TagsDialog.svelte`: tag management UI
 - `ConfirmDialog.svelte`, `CreateFolderDialog.svelte`, `CompressDialog.svelte`: active modal flows
 - `UploadConflictDialog.svelte`: present in the component set, but not currently wired into the live upload request loop
 
@@ -137,11 +160,12 @@ Key route groups:
 
 - session handling
 - navigation and URL sync
-- filters and pagination
+- filters and pagination (extension, tag, name)
 - uploads and progress handling
 - selection state
 - selection action bar (zip, delete, create folder)
 - create-folder flow
+- tagging
 - lightbox state
 - archive preview state
 - shared video playback state
@@ -154,17 +178,21 @@ Key route groups:
 
 ## URL State Design
 
-The client syncs selected navigation state into the URL:
+The client syncs selected navigation state into the URL using `pushState`/`replaceState` from `$app/navigation`:
 
 - current directory via `p`
 - current page via `page`
 - current page size via `page-size`
 - current name filter via `name_filter`
 - extension filters via repeated `ext`
+- tag filters via repeated `tag` (including `untagged` and `tagged`)
 - open lightbox path via `f`
 - image zoom state via `z`
+- view mode via `v` (`list` or `grid`)
 
-This enables refresh-safe navigation and deep linking for the current folder, pagination state, filters, and lightbox state.
+Navigation actions (page change, view mode change, lightbox open/close, directory change) use `pushState` to create history entries. State updates (zoom, filter changes) use `replaceState`. Browser back/forward is handled via `popstate` event listener.
+
+This enables refresh-safe navigation, deep linking, and browser history navigation for the current folder, pagination state, filters, lightbox state, and view mode.
 
 ## Styling Design
 

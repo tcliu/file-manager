@@ -15,7 +15,6 @@
 ## Non-Goals
 
 - Multi-user accounts or permissions.
-- Persistent metadata storage.
 - File editing, renaming, or moving.
 - Cloud storage integration.
 
@@ -169,6 +168,11 @@ root-dir=../shared
 - `POST /api/selection-size`
 - `GET /api/video-preparation`
 - `GET /api/archive-contents`
+- `GET /api/tags`
+- `POST /api/tags`
+- `DELETE /api/tags`
+- `POST /api/process-image`
+- `GET /api/process-image-download`
 - `GET /media`
 - `HEAD /media`
 - `GET /thumbnail`
@@ -178,17 +182,40 @@ root-dir=../shared
 
 ## URL State
 
-The browser syncs these values into the URL:
+The browser syncs these values into the URL using `pushState` for navigation actions and `replaceState` for state updates:
 
 - `p`: current directory
 - `page`: current page
 - `page-size`: current page size
 - `name_filter`: current name filter
 - `ext`: selected extensions
+- `tag`: selected tag filters (supports `untagged` and `tagged` special values)
 - `f`: open lightbox file path
 - `z`: image lightbox zoom state
+- `v`: view mode (`list` or `grid`; defaults to `grid`)
 
-List/grid mode is client state and request state, but is not currently written into the browser URL.
+This enables refresh-safe navigation, deep linking, and browser back/forward navigation for the current folder, pagination state, filters, lightbox state, and view mode.
+
+## Tagging
+
+- Each directory can have a `.file-manager/metadata.yml` file storing tag assignments.
+- Files and directories can be tagged with multiple tags.
+- Tags are stored as a mapping of tag name to array of filenames.
+- The `GET /api/tags` endpoint returns all tags for the current directory.
+- The `POST /api/tags` endpoint adds tags to specified items.
+- The `DELETE /api/tags` endpoint removes tags from specified items.
+- Extension and tag filters in the UI only show options that have matching items in the current directory (not nested paths).
+- Special `tagged` and `untagged` filters show files with any tag or no tags respectively.
+
+## Image Processing
+
+- The `POST /api/process-image` endpoint processes images with optional rotation.
+- Supported operations: resize, quality adjustment, format conversion (JPEG/PNG), rotation.
+- EXIF orientation is preserved during processing.
+- Raw pixel dimensions are swapped when EXIF orientation indicates a rotation, to match viewed dimensions.
+- Processed images are cached in `.file-manager/processed`.
+- If dimensions match original AND quality is 100 AND format is unchanged, the original file is used as-is.
+- The `GET /api/process-image-download` endpoint downloads the processed image.
 
 ## Constraints
 
