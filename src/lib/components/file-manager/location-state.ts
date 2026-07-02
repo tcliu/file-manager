@@ -1,4 +1,4 @@
-import { replaceState } from '$app/navigation';
+import { pushState, replaceState } from '$app/navigation';
 import { normalizeClientRelativeDirectory } from './client-paths';
 
 export interface InitialLocationState {
@@ -12,6 +12,7 @@ export interface InitialLocationState {
   page: number;
   pageSize: number | string;
   filename: string;
+  viewMode: "list" | "grid";
 }
 
 export function parseTagValues(values: string[]): Set<string> {
@@ -56,6 +57,7 @@ export function readInitialLocationState(
       page: 1,
       pageSize: 20,
       filename: '',
+      viewMode: 'grid' as const,
     };
   }
 
@@ -71,6 +73,8 @@ export function readInitialLocationState(
   const rawPage = url.searchParams.get('page');
   const rawPageSize = url.searchParams.get('page-size');
   const filename = url.searchParams.get('name_filter') ?? url.searchParams.get('filename') ?? '';
+  const rawViewMode = url.searchParams.get('v');
+  const viewMode: 'list' | 'grid' = rawViewMode === 'list' ? 'list' : 'grid';
 
   let page = 1;
   let pageSize: number | string = 20;
@@ -114,6 +118,7 @@ export function readInitialLocationState(
     page,
     pageSize,
     filename,
+    viewMode,
   };
 }
 
@@ -130,7 +135,8 @@ export function syncLocationState(input: {
   lightboxPath: string;
   lightboxMode: string;
   lightboxZoomValue: string;
-}) {
+  viewMode: "list" | "grid";
+}, method: 'push' | 'replace' = 'replace') {
 
   const url = new URL(window.location.href);
   if (input.currentDir) {
@@ -171,6 +177,16 @@ export function syncLocationState(input: {
     url.searchParams.delete('f');
     url.searchParams.delete('z');
   }
+  if (input.viewMode === 'list') {
+    url.searchParams.set('v', 'list');
+  } else {
+    url.searchParams.delete('v');
+  }
 
-  replaceState(url.pathname + (url.search ? url.search : ''), {});
+  const urlStr = url.pathname + (url.search ? url.search : '');
+  if (method === 'push') {
+    pushState(urlStr, {});
+  } else {
+    replaceState(urlStr, {});
+  }
 }

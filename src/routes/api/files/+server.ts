@@ -46,7 +46,15 @@ export const GET: RequestHandler = async (event) => {
   });
 
   const extensions = listing.extensions;
-  const availableTags = listing.availableTags;
+  const currentFilenames = new Set([
+    ...listing.files.map((f) => f.name),
+    ...listing.directories.map((d) => d.name),
+  ]);
+  const availableTags = listing.availableTags.filter((tag) => {
+    const taggedFiles = tagsMap[tag];
+    if (!taggedFiles) return false;
+    return taggedFiles.some((filename) => currentFilenames.has(filename));
+  });
 
   let filteredFiles = listing.files;
   if (selectedExtensions.length > 0) {

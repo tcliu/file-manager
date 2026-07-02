@@ -373,7 +373,7 @@
     return readInitialLocationStateFromUrl(normalizeLightboxZoomValue);
   }
 
-  function syncLocationState() {
+  function syncLocationState(method: 'push' | 'replace' = 'replace') {
     syncLocationStateToUrl({
       currentDir: ui.currentDir,
       page: ui.page,
@@ -387,7 +387,8 @@
       lightboxPath: ui.lightboxPath,
       lightboxMode,
       lightboxZoomValue,
-    });
+      viewMode,
+    }, method);
   }
 
   function isImageFile(extension: string): boolean {
@@ -544,7 +545,7 @@
     }
   }
 
-  async function loadFiles() {
+  async function loadFiles(historyMethod: 'push' | 'replace' = 'replace') {
     if (!getCurrentSession()) {
       forceLogout("Session expired: please log in again");
       return;
@@ -629,7 +630,7 @@
       if (!nextListing.directories.length && !nextListing.files.length) {
         toast.info("No items found.");
       }
-      syncLocationState();
+      syncLocationState(historyMethod);
     } catch (error) {
       if (requestId !== loadFilesRequestId) return;
       toast.error(
@@ -712,13 +713,14 @@
     const nextPage = movePage(ui.page, ui.totalPages, delta);
     if (nextPage === null) return;
     ui.page = nextPage;
-    schedulePageLoad();
+    schedulePageLoad('push');
   }
 
   function setViewMode(mode: "list" | "grid") {
     viewMode = mode;
     ui.page = 1;
     loadFiles();
+    syncLocationState('push');
   }
 
   function getMediaUrl(filePath: string): string {
@@ -1511,11 +1513,11 @@
     if (isVideoFile(currentFile.extension)) {
       sharedVideo.handoffToSurface(filePath, "lightbox", true);
     }
-    syncLightboxState();
-    syncLocationState();
+    syncLightboxState(false);
+    syncLocationState('push');
   }
 
-  function closeLightbox() {
+  function closeLightbox(pushHistory: boolean = true) {
     if (lightboxDebounceTimer) {
       clearTimeout(lightboxDebounceTimer);
       lightboxDebounceTimer = undefined;
@@ -1560,7 +1562,9 @@
     ui.lightboxImageNaturalWidth = 0;
     ui.lightboxImageNaturalHeight = 0;
     setBodyScrollLocked(false);
-    syncLocationState();
+    if (pushHistory) {
+      syncLocationState('push');
+    }
 
     if (shouldRestoreGridVideo && closingLightboxPath) {
       window.requestAnimationFrame(() => {
@@ -1569,7 +1573,7 @@
     }
   }
 
-  function syncLightboxState() {
+  function syncLightboxState(pushHistory: boolean = true) {
     if (lightboxMode === "video" && lightboxPathValue) {
       const currentLightboxVideo = sharedVideo.getElementsByPath(
         lightboxPathValue,
@@ -1588,7 +1592,7 @@
 
     const currentFile = ui.visibleMediaFiles[ui.lightboxIndex];
     if (!currentFile) {
-      closeLightbox();
+      closeLightbox(pushHistory);
       return;
     }
     ui.lightboxPath = currentFile.path;
@@ -1636,13 +1640,13 @@
     }, lightboxLoadDebounceMs);
   }
 
-  function schedulePageLoad() {
+  function schedulePageLoad(historyMethod: 'push' | 'replace' = 'replace') {
     if (pageLoadDebounceTimer) {
       clearTimeout(pageLoadDebounceTimer);
     }
     pageLoadDebounceTimer = setTimeout(() => {
       pageLoadDebounceTimer = undefined;
-      loadFiles();
+      loadFiles(historyMethod);
     }, pageLoadDebounceMs);
   }
 
@@ -1777,7 +1781,7 @@
     lightboxZipFiles = [];
     lightboxZipBreadcrumbs = [{ label: "/", path: "" }];
     setBodyScrollLocked(true);
-    syncLocationState();
+    syncLocationState('push');
 
     try {
       const query = new URLSearchParams({ path: file.path });
@@ -1822,7 +1826,8 @@
     if (nextIndex >= 0 && nextIndex < ui.visibleMediaFiles.length) {
       ui.lightboxIndex = nextIndex;
       ui.lightboxPath = ui.visibleMediaFiles[nextIndex].path;
-      syncLightboxState();
+      syncLightboxState(false);
+      syncLocationState('push');
       return;
     }
     if (direction > 0 && ui.page < ui.totalPages) {
@@ -1831,7 +1836,8 @@
       if (ui.visibleMediaFiles.length > 0) {
         ui.lightboxIndex = 0;
         ui.lightboxPath = ui.visibleMediaFiles[0].path;
-        syncLightboxState();
+        syncLightboxState(false);
+        syncLocationState('push');
       }
     } else if (direction < 0 && ui.page > 1) {
       ui.page -= 1;
@@ -1840,7 +1846,8 @@
         ui.lightboxIndex = ui.visibleMediaFiles.length - 1;
         ui.lightboxPath =
           ui.visibleMediaFiles[ui.visibleMediaFiles.length - 1].path;
-        syncLightboxState();
+        syncLightboxState(false);
+        syncLocationState('push');
       }
     }
   }
@@ -2288,6 +2295,7 @@
       selectedTagsList = [...ui.requestedTags].sort();
       ui.untagged = initialLocation.untagged;
       ui.tagged = initialLocation.tagged;
+      viewMode = initialLocation.viewMode;
       pendingInitialLightboxPath = initialLocation.filePath;
       showApp();
       initializeApp(initialLocation.zoomValue);
@@ -2295,6 +2303,73 @@
       showLogin();
     }
   });
+
+  $effect(() => {
+    if (typeof window === "undefined") return;
+    let isHandlingPopState = false;
+    function handlePopState() {
+      if (isHandlingPopState) return;
+      isHandlingPopState = true;
+      const location = readInitialLocationState();
+      const directoryOrPageChanged = location.directory !== ui.currentDir || location.page !== ui.page;
+      const needsFileLoad = (location.filePath && (
+        directoryOrPageChanged ||
+        !ui.visibleMediaFiles.some((f: any) => f.path === location.filePath)
+      )) || directoryOrPageChanged;
+      if (needsFileLoad) {
+        ui.currentDir = location.directory;
+        ui.page = location.page;
+        ui.pageSize = location.pageSize;
+        nameFilter = location.filename;
+        pageSizeDisplay = String(location.pageSize);
+        ui.requestedExtensions = new Set(location.selectedExtensions);
+        ui.selectedExtensions = new Set(location.selectedExtensions);
+        ui.requestedTags = new Set(location.requestedTags);
+        selectedTagsList = [...ui.requestedTags].sort();
+        ui.untagged = location.untagged;
+        ui.tagged = location.tagged;
+        viewMode = location.viewMode;
+        loadFiles('replace').then(() => {
+          isHandlingPopState = false;
+          openLightboxFromUrl(location);
+        });
+        return;
+      }
+      if (location.viewMode !== viewMode) {
+        viewMode = location.viewMode;
+      }
+      isHandlingPopState = false;
+      openLightboxFromUrl(location);
+    }
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  });
+
+  function openLightboxFromUrl(location: ReturnType<typeof readInitialLocationState>) {
+    if (location.filePath && (!lightboxOpen || ui.lightboxPath !== location.filePath)) {
+      const mediaFile = ui.visibleMediaFiles.find(
+        (f: any) => f.path === location.filePath,
+      );
+      if (mediaFile) {
+        ui.lightboxPath = location.filePath;
+        ui.lightboxIndex = ui.visibleMediaFiles.findIndex(
+          (f: any) => f.path === location.filePath,
+        );
+        lightboxOpen = true;
+        setBodyScrollLocked(true);
+        resetLightboxZoom();
+        if (location.zoomValue) {
+          setLightboxZoom(location.zoomValue);
+        }
+        if (isVideoFile(mediaFile.extension)) {
+          sharedVideo.handoffToSurface(location.filePath, "lightbox", true);
+        }
+        syncLightboxState(false);
+      }
+    } else if (!location.filePath && lightboxOpen) {
+      closeLightbox(false);
+    }
+  }
 
   $effect(() => {
     fileInputOpenToken;
@@ -3286,7 +3361,7 @@
               ui.totalPages,
               Math.max(1, Number(pageInputValue || "1")),
             );
-            schedulePageLoad();
+            schedulePageLoad('push');
           }}
           onkeydown={(e) => {
             if (e.key === "Enter") {
@@ -3294,7 +3369,7 @@
                 ui.totalPages,
                 Math.max(1, Number(pageInputValue || "1")),
               );
-              schedulePageLoad();
+              schedulePageLoad('push');
             }
           }}
           type="number"
