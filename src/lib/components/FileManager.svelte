@@ -1614,6 +1614,7 @@
       formatBytes,
       formatDateTime,
       formatImageDimensions,
+      tagIndexMap: ui.tagIndexMap,
     });
     lightboxPrevDisabled = ui.page <= 1 && ui.lightboxIndex <= 0;
     lightboxNextDisabled =

@@ -2,7 +2,10 @@ export interface LightboxMetaItem {
   key: string;
   text: string;
   badge: boolean;
+  class?: string;
 }
+
+import { HUE_STYLES, getTagHue } from './tag-colors';
 
 export interface ArchiveBreadcrumbItem {
   label: string;
@@ -57,8 +60,10 @@ export function buildMediaLightboxMetaItems(input: {
   formatBytes: (bytes: number) => string;
   formatDateTime: (value: string) => string;
   formatImageDimensions: (file: any) => string;
+  tagIndexMap?: Record<string, number>;
 }): LightboxMetaItem[] {
   const dimensionsText = input.formatImageDimensions(input.file);
+  const fileTags: string[] = input.file.tags || [];
 
   return [
     {
@@ -66,6 +71,16 @@ export function buildMediaLightboxMetaItems(input: {
       text: '.' + (input.file.extension || 'none'),
       badge: true,
     },
+    ...fileTags.map((tag) => {
+      const hue = getTagHue(tag, input.tagIndexMap);
+      const hueStyles = HUE_STYLES[hue] ?? HUE_STYLES.cyan;
+      return {
+        key: `tag-${tag}`,
+        text: tag,
+        badge: true,
+        class: hueStyles.chip,
+      };
+    }),
     {
       key: 'position',
       text: `${input.mediaOffset + input.lightboxIndex + 1} / ${input.totalMedia}`,

@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { type LightboxMetaItem } from './file-manager/lightbox-state';
+
   interface Props {
     open: boolean;
     mode: string;
@@ -18,7 +20,7 @@
     zipErrorText: string;
     imageAlt: string;
     titleValue: string;
-    metaItems: { key: string; text: string; badge: boolean }[];
+    metaItems: LightboxMetaItem[];
     prevDisabled: boolean;
     nextDisabled: boolean;
     zoomValue: string;
@@ -196,7 +198,7 @@
               </p>
               {#each metaItems as item, i (item.key)}
                 {#if item.badge}
-                  <span class="shrink-0 rounded-full border border-slate-700 px-2 py-1 text-xs text-slate-400">{item.text}</span>
+                  <span class="shrink-0 {item.class ?? 'rounded-full border border-slate-700 px-2 py-1 text-xs text-slate-400'}">{item.text}</span>
                 {/if}
               {/each}
             </div>

@@ -37,7 +37,7 @@ type HueStyles = {
   inactiveDropdown: string;
 };
 
-const HUE_STYLES: Record<string, HueStyles> = {
+export const HUE_STYLES: Record<string, HueStyles> = {
   red: {
     chip: 'rounded-full border px-1.5 py-0.5 text-xs border-red-300/40 bg-red-950/20 text-red-300/80',
     activeFilter: 'rounded-full border-2 px-2.5 py-0.5 text-xs font-semibold transition border-red-300/40 bg-red-950/20 text-red-300/80',
